@@ -1,0 +1,38 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use lib "/opt/c7a-perl/current/cmd/local/lib/perl5";
+use FindBin;
+use lib "$FindBin::RealBin/../lib";
+
+use Sys::RunAlone silent => 1;
+use Sys::Hostname;
+use Getopt::Long;
+use CIHM::Meta::SolrStream;
+
+
+my $conf = "/etc/canadiana/tdr/tdr.conf";
+#  Since is a sequence number for the _changes feed
+my $since;
+my $limit=20000;
+my $localdocument = "solrstream.".hostname;
+
+GetOptions (
+    'conf:s' => \$conf,
+    'since:i' => \$since,
+    'limit:i' => \$limit,
+    'localdocument:s' => \$localdocument
+    );
+
+
+CIHM::Meta::SolrStream->new({ 
+    configpath => $conf,
+    since => $since,
+    limit => $limit,
+    localdocument => $localdocument
+                            })->process;
+
+1;
+__END__

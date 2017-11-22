@@ -1,0 +1,39 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use lib "/opt/c7a-perl/current/cmd/local/lib/perl5";
+use FindBin;
+use lib "$FindBin::RealBin/../lib";
+
+use Sys::RunAlone silent => 1;
+use Sys::Hostname;
+use Getopt::Long;
+use CIHM::Meta::Ditto;
+
+my $conf = "/etc/canadiana/tdr/tdr.conf";
+my $since;
+#  Since can also take date format like "48hours" and "2016-01-01
+my $localdocument = "ditto.".hostname;
+my $all; # Flag to ignore since, and loop through all AIPs
+my $ignoredate; # Flag to ignore the manifestdate
+
+GetOptions (
+    'all' => \$all,
+    'ignoredate' => \$ignoredate,
+    'conf:s' => \$conf,
+    'since:s' => \$since,
+    'localdocument:s' => \$localdocument
+    );
+
+CIHM::Meta::Ditto->new({ 
+    since => $since,
+    localdocument => $localdocument,
+    configpath => $conf,
+    all => $all,
+    ignoredate => $ignoredate
+                       })->run;
+
+1;
+__END__
