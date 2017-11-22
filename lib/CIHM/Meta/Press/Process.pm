@@ -580,7 +580,7 @@ sub process_series {
 }
 
 
-=item $self->process_components()
+=head1 $self->process_components()
 
 Process component AIPs to build the 'components' and 'order' fields.
 Currently order is numeric order by sequence, but later may be built

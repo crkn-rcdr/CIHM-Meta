@@ -1,0 +1,29 @@
+use 5.006;
+use strict;
+use warnings FATAL => 'all';
+use ExtUtils::MakeMaker;
+
+WriteMakefile(
+    NAME             => 'CIHM::Meta',
+    AUTHOR           => q{Russell McOrmond <russell.mcormond@canadiana.ca>},
+    VERSION_FROM     => 'lib/CIHM/Meta.pm',
+    ABSTRACT_FROM    => 'lib/CIHM/Meta.pm',
+    LICENSE          => 'Artistic_2_0',
+    PL_FILES         => {},
+    "EXE_FILES" => [
+      "bin/reposync", "bin/eqod", "bin/hammer", "bin/eqodsync", "bin/ditto", "bin/tdr-sipvalidate", "bin/solrstream", "bin/press", "bin/mallet", "bin/eqod_test", "bin/tdringest"
+    ],
+    MIN_PERL_VERSION => 5.006,
+    CONFIGURE_REQUIRES => {
+        'ExtUtils::MakeMaker' => 0,
+    },
+    BUILD_REQUIRES => {
+        'Test::More' => 0,
+    },
+    PREREQ_PM => {
+        #'ABC'              => 1.6,
+        #'Foo::Bar::Module' => 5.0401,
+    },
+    dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
+    clean => { FILES => 'CIHM-Meta-*' },
+);
