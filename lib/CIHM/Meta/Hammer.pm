@@ -8,6 +8,7 @@ use CIHM::TDR::REST::internalmeta;
 use CIHM::Meta::Hammer::Worker;
 
 use Coro::Semaphore;
+use AnyEvent::Fork;
 use AnyEvent::Fork::Pool;
 
 use Try::Tiny;
