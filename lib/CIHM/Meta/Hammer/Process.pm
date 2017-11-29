@@ -258,7 +258,7 @@ sub get_metadata {
 
     my $cospath=$self->aip."/$file";
     while ($count--) {
-        my $r = $self->cos->get('/'.$cospath, {file => $cospath});
+        my $r = $self->cos->get('/'.$cospath);
         if ($r->code == 200) {
             return $r->response->content;
         } elsif ($r->code == 599) {

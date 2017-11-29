@@ -220,7 +220,7 @@ sub getManifest {
     my ($self,$aip) = @_;
 
     my $file = $aip."/manifest-md5.txt";
-    my $r = $self->cos->get("/$file", {file => $file});
+    my $r = $self->cos->get("/$file");
     if ($r->code == 200) {
         my $dt = DateTime->from_epoch(epoch => str2time($r->response->header('last-modified')));
         if ($dt) {
@@ -272,7 +272,7 @@ sub putAttachment {
     my ($self,$aip,$path) = @_;
 
     my $file = $aip."/$path";
-    my $r = $self->cos->get("/$file", {file => $file});
+    my $r = $self->cos->get("/$file");
     if ($r->code == 200) {
         my ($keydate,$filedate);
 
