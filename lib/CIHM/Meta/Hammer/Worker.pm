@@ -62,7 +62,8 @@ sub initworker {
     }
 
     my %cosargs = (
-        jwt_payload => '{"uids":[".*"]}'
+        jwt_payload => '{"uids":[".*"]}',
+        conf => $configpath
         );
     $self->{cos} = new CIHM::TDR::REST::ContentServer (\%cosargs);
     if (!$self->cos) {

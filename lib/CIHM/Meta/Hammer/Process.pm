@@ -6,7 +6,6 @@ use CIHM::TDR::TDRConfig;
 use CIHM::TDR::Repository;
 use CIHM::TDR::REST::filemeta;
 use CIHM::TDR::REST::internalmeta;
-use CIHM::TDR::REST::ContentServer;
 use CIHM::METS::parse;
 use XML::LibXML;
 use Try::Tiny;
