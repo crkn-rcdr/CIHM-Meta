@@ -8,7 +8,7 @@ WriteMakefile(
     AUTHOR           => q{Russell McOrmond <russell.mcormond@canadiana.ca>},
     VERSION_FROM     => 'lib/CIHM/Meta.pm',
     ABSTRACT_FROM    => 'lib/CIHM/Meta.pm',
-    LICENSE          => 'Artistic_2_0',
+    LICENSE          => 'artistic_2',
     PL_FILES         => {},
     "EXE_FILES" => [
       "bin/reposync", "bin/eqod", "bin/hammer", "bin/eqodsync", "bin/ditto", "bin/tdr-sipvalidate", "bin/solrstream", "bin/press", "bin/eqod_test"

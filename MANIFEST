@@ -8,6 +8,7 @@ bin/reposync
 bin/solrstream
 bin/tdr-sipvalidate
 Changes
+HISTORY.md
 ignore.txt
 lib/CIHM/Meta.pm
 lib/CIHM/Meta/Ditto.pm
