@@ -148,6 +148,7 @@ sub process {
     my $label;
     my $pubmin;
     my $seq;
+    my $canonicalDownload="";
     my %hammerfields;
 
     # Loop through array of item+components
@@ -166,6 +167,10 @@ sub process {
                 }
             }
 
+            # If item download exists, set the canonicalDownload
+            if (exists $metsdata->[0]->{'canonicalDownload'}) {
+                $canonicalDownload=$metsdata->[0]->{'canonicalDownload'};
+            }
             # Copy into separate variables (used for components, couch)
             $label = $metsdata->[0]->{'label'};
             $pubmin = $metsdata->[0]->{'pubmin'};
@@ -203,7 +208,6 @@ sub process {
             }
         }
 
-
         # at end of loop, after field names possibly updated
         foreach my $field (keys $metsdata->[$i]) {
             $hammerfields{$field}=1;
@@ -227,6 +231,9 @@ sub process {
     if ($self->pageinfo->{count} > 0) {
         $self->updatedoc->{'pageinfo'}= encode_json $self->pageinfo;
     }
+
+    # This always defined
+    $self->updatedoc->{'canonicalDownload'}= $canonicalDownload;
 
     # Set array of fields
     my @hammerfields= sort(keys %hammerfields);
