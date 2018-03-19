@@ -178,6 +178,8 @@ sub adddocument {
         if (exists $aipdata->{'parent'}) {
             $self->process_issue($aipdata->{'parent'});
         }
+        # For the 'collection' field to be complete, processing components
+        # needs to happen after process_issue().
         $self->process_components();
     }
 
@@ -189,7 +191,7 @@ sub adddocument {
     }
 
     if (scalar(keys $self->searchdoc) != scalar(keys $self->presentdoc)) {
-        warn $self->aip . " had ". scalar(keys $self->searchdoc) . "searchdoc and ". scalar(keys $self->presentdoc) . "presentdoc\n" ;
+        warn $self->aip . " had ". scalar(keys $self->searchdoc) . " searchdoc and ". scalar(keys $self->presentdoc) . " presentdoc\n" ;
         print $self->aip . " had doc count discrepancy\n";
     };
 
@@ -611,6 +613,12 @@ sub process_components {
         if (exists $self->presentdoc->{$thisdoc}->{'canonicalMasterHeight'}) {
             $components->{$self->presentdoc->{$thisdoc}->{'key'}}->{'canonicalMasterHeight'}=
                 $self->presentdoc->{$thisdoc}->{'canonicalMasterHeight'};
+        }
+        if (defined $self->presentdoc->{$self->aip}->{'collection'}) {
+            $self->presentdoc->{$thisdoc}->{'collection'}=
+                $self->presentdoc->{$self->aip}->{'collection'};
+            $self->searchdoc->{$thisdoc}->{'collection'}=
+                $self->presentdoc->{$self->aip}->{'collection'};
         }
     }
     foreach my $page (sort {$a <=> $b} keys %seq) {
