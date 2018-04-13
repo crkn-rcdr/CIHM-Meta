@@ -384,6 +384,13 @@ sub process_hammer {
         }
     }
 
+    # If there is now an item 'tx' field, handle its count
+    if (exists $hammerdata->[0]->{'tx'}) {
+        my $count = scalar (@{$hammerdata->[0]->{'tx'}});
+        if ($count) {
+            $hammerdata->[0]->{'component_count_fulltext'}=$count;
+        }
+    }
 
     # These fields copied from item into each component.
     my $pubmin=$hammerdata->[0]->{'pubmin'};
@@ -416,7 +423,7 @@ sub process_hammer {
         foreach my $cf ("key","type","depositor","label","pkey","seq",
                         "pubmin","pubmax","lang","identifier","pg_label",
                         "ti","au","pu","su","no","ab","tx",
-                        "no_rights","no_source",
+                        "no_rights","no_source","component_count_fulltext"
             ) {
             $self->searchdoc->{$key}->{$cf}=$doc->{$cf} if exists $doc->{$cf};
             delete $docfields{$cf};
@@ -432,7 +439,7 @@ sub process_hammer {
                         "canonicalDownload","canonicalDownloadMime",
                         "canonicalDownloadSize","canonicalDownloadMD5",
                         "ti","au","pu","su","no","ab",
-                        "no_source","no_rights"
+                        "no_source","no_rights","component_count_fulltext"
             ) {
             $self->presentdoc->{$key}->{$cf}=$doc->{$cf} if exists $doc->{$cf};
             delete $docfields{$cf};
