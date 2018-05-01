@@ -217,6 +217,9 @@ sub getMETS {
             $self->log->error("Error parsing date from header:" . $r->response->header('last-modified'));
             return;
         }
+    } elsif ($r->code == 404 ) {
+        $self->log->info("Not yet found: $file");
+        return;
     } else {
         $self->log->error("Accessing $file returned code: " . $r->code);
         return;
