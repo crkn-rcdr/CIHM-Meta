@@ -1,0 +1,3 @@
+#!/bin/sh
+
+perl Makefile.PL && make && make dist && cp CIHM-Meta-0.17.tar.gz ../cihm-metadatabus/dist/

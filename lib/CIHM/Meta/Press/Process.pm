@@ -152,9 +152,9 @@ sub adddocument {
             $aipdata->{'collections'};
     }
 
-    # If a parl-terms.json attachment exists, process it.
-    if (exists $aipdata->{'attachInfo'}->{'parl-terms.json'}) {
-        $self->process_parl_terms();
+    # If a parl.json attachment exists, process it. (parl-terms.json is obsolete)
+    if (exists $aipdata->{'attachInfo'}->{'parl.json'}) {
+        $self->process_parl();
     }
 
     # Determine if series or issue/monograph
@@ -452,13 +452,31 @@ sub process_hammer {
     }
 }
 
-sub process_parl_terms {
+sub process_parl {
     my ($self) = @_;
 
-    # Grab the data for the CouchDB document
-    my $parltermsdata = $self->internalmeta->get_aip($self->aip."/parl-terms.json");
-    $self->presentdoc->{$self->aip}->{'parl-term'}=$parltermsdata;
+    my $parl = $self->internalmeta->get_aip($self->aip . "/parl.json");
+    my %term_map = (
+        label => "parlLabel",
+        chamber => "parlChamber",
+        session => "parlSession",
+        type => "parlType",
+        node => "parlNode",
+        reportTitle => "parlReportTitle",
+        callNumber => "parlCallNumber",
+        primeMinisters => "parlPrimeMinisters",
+        pubmin => "pubmin",
+        pubmax => "pubmax"
+    );
 
+    my @search_terms = qw/label chamber session type reportTitle callNumber primeMinisters pubmin pubmax/;
+    foreach my $st (@search_terms) {
+        $self->searchdoc->{$self->aip}->{$term_map{$st}} = $parl->{$st} if exists $parl->{$st};
+    }
+
+    foreach my $pt (keys %term_map) {
+        $self->presentdoc->{$self->aip}->{$term_map{$pt}} = $parl->{$pt} if exists $parl->{$pt};
+    }
 }
 
 # Merging multi-value fields
