@@ -457,6 +457,7 @@ sub process_parl {
 
     my $parl = $self->internalmeta->get_aip($self->aip . "/parl.json");
     my %term_map = (
+        language => "lang",
         label => "parlLabel",
         chamber => "parlChamber",
         session => "parlSession",
@@ -469,7 +470,7 @@ sub process_parl {
         pubmax => "pubmax"
     );
 
-    my @search_terms = qw/label chamber session type reportTitle callNumber primeMinisters pubmin pubmax/;
+    my @search_terms = qw/language label chamber session type reportTitle callNumber primeMinisters pubmin pubmax/;
     foreach my $st (@search_terms) {
         $self->searchdoc->{$self->aip}->{$term_map{$st}} = $parl->{$st} if exists $parl->{$st};
     }
