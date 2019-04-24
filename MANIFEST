@@ -1,4 +1,3 @@
-bin/ditto
 bin/eqod
 bin/eqod_test
 bin/eqodsync
@@ -11,7 +10,6 @@ Changes
 HISTORY.md
 ignore.txt
 lib/CIHM/Meta.pm
-lib/CIHM/Meta/Ditto.pm
 lib/CIHM/Meta/Eqod.pm
 lib/CIHM/Meta/Eqod/Sync.pm
 lib/CIHM/Meta/Eqod/Sync2.pm
