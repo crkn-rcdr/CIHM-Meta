@@ -7,6 +7,7 @@ use CIHM::TDR::REST::tdrepo;
 use CIHM::TDR::REST::internalmeta;
 use CIHM::TDR::REST::wipmeta;
 use CIHM::TDR::REST::ContentServer;
+use CIHM::Meta::REST::dipstaging;
 use JSON;
 use Date::Parse;
 use DateTime;
@@ -16,7 +17,7 @@ use Data::Dumper;
 =head1 NAME
 
 CIHM::Meta::RepoSync - Synchronize specific data between 
-"tdrepo" and "internalmeta" databases
+"tdrepo" and "internalmeta", "wipmeta" and "dipstaging" databases
 
 =head1 SYNOPSIS
 
@@ -68,9 +69,19 @@ sub new {
     }
     # Undefined if no <wipmeta> config block
     if (exists $confighash{wipmeta}) {
-        $self->{wipmeta} = new CIHM::TDR::REST::internalmeta (
+        $self->{wipmeta} = new CIHM::TDR::REST::wipmeta (
             server => $confighash{wipmeta}{server},
             database => $confighash{wipmeta}{database},
+            type   => 'application/json',
+            conf   => $self->configpath,
+            clientattrs => {timeout => 3600},
+            );
+    }
+    # Undefined if no <dipstaging> config block
+    if (exists $confighash{dipstaging}) {
+        $self->{dipstaging} = new CIHM::Meta::REST::dipstaging (
+            server => $confighash{dipstaging}{server},
+            database => $confighash{dipstaging}{database},
             type   => 'application/json',
             conf   => $self->configpath,
             clientattrs => {timeout => 3600},
@@ -82,6 +93,9 @@ sub new {
     }
     if ($self->wipmeta) {
         push $self->dbs, $self->wipmeta;
+    }
+    if ($self->dipstaging) {
+        push $self->dbs, $self->dipstaging;
     }
     if (! @{$self->dbs}) {
         croak "No output databases defined\n";
@@ -127,6 +141,10 @@ sub wipmeta {
     my $self = shift;
     return $self->{wipmeta};
 }
+sub dipstaging {
+    my $self = shift;
+    return $self->{dipstaging};
+}
 sub cos {
     my $self = shift;
     return $self->{cos};
@@ -160,9 +178,7 @@ sub reposync {
         return;
     }
 
- 
-    # Loop through all the changed AIPs, filter for public AIPs, then
-    # update all the DBs
+    # Loop through all the changed AIPs, and update all the DBs
     foreach my $thisaip (@$newestaips) {
         my $aip = $thisaip->{key};
         my $manifestdate = $thisaip->{value}[0];
