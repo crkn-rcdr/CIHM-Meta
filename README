@@ -7,8 +7,6 @@ Tools:
 * reposync - Keeps 'internalmeta' and 'wipmeta' CouchDB databases current
              about the public availability of replicas of AIP content
              in repositories.
-* ditto  - Will be decomissioned soon, used by older version to load
-           METS into CouchDB
 * hammer - reads METS data from the repository and generates a JSON file
            stored in the 'internalmeta' couchdb database
 * press  - Checks for 'internalmeta' updates and pushes updates to
