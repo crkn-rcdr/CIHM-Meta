@@ -2,8 +2,9 @@ package CIHM::Meta::Hammer;
 
 use strict;
 use Carp;
-use CIHM::TDR::TDRConfig;
-use CIHM::TDR::Repository;
+use Config::General;
+use Log::Log4perl;
+
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::Hammer::Worker;
 
@@ -25,7 +26,7 @@ CIHM::Meta::Hammer - Normalize metadata from repository and post to "internalmet
     my $hammer = CIHM::Meta::Hammer->new($args);
       where $args is a hash of arguments.
 
-      $args->{configpath} is as defined in CIHM::TDR::TDRConfig
+      $args->{configpath} is as used by Config::General
 
 =cut
 
@@ -37,10 +38,6 @@ sub new {
         die "Argument to CIHM::Meta::Hammer->new() not a hash\n";
     };
     $self->{args} = $args;
-
-    $self->{config} = CIHM::TDR::TDRConfig->instance($self->configpath);
-    $self->{logger} = $self->{config}->logger;
-
 
     $self->{skip}=delete $args->{skip};
 
@@ -65,16 +62,14 @@ sub new {
         $self->{limit} = ($self->{maxprocs})*2+1
     }
 
-    # Confirm there is a named repository block in the config
-    my %confighash = %{$self->{config}->get_conf};
+    Log::Log4perl->init_once("/etc/canadiana/tdr/log4perl.conf");
+    $self->{logger} = Log::Log4perl::get_logger("CIHM::TDR");
 
 
-    # Check things that workers need, but that parent doesn't.
-    if (! new CIHM::TDR::Repository({
-        configpath => $self->configpath
-                                                     })) {
-        croak "Wasn't able to build Repository object";
-    }
+    my %confighash = new Config::General(
+	-ConfigFile => $args->{configpath},
+	)->getall;
+
 
     # Undefined if no <internalmeta> config block
     if (exists $confighash{internalmeta}) {
@@ -116,10 +111,6 @@ sub limit {
 sub endtime {
     my $self = shift;
     return $self->{endtime};
-}
-sub config {
-    my $self = shift;
-    return $self->{config};
 }
 sub log {
     my $self = shift;

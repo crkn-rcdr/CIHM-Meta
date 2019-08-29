@@ -5,8 +5,10 @@ use Carp;
 use AnyEvent;
 use Try::Tiny;
 use JSON;
-use CIHM::TDR::TDRConfig;
-use CIHM::TDR::REST::ContentServer;
+use Config::General;
+use Log::Log4perl;
+
+use CIHM::Swift::Client;
 use CIHM::Meta::REST::filemeta;
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::Hammer::Process;
@@ -21,10 +23,12 @@ sub initworker {
 
     $self = bless {};
 
-    $self->{config} = CIHM::TDR::TDRConfig->instance($configpath);
-    $self->{logger} = $self->{config}->logger;
-    my %confighash = %{$self->{config}->get_conf};
+    Log::Log4perl->init_once("/etc/canadiana/tdr/log4perl.conf");
+    $self->{logger} = Log::Log4perl::get_logger("CIHM::TDR");
 
+    my %confighash = new Config::General(
+        -ConfigFile => $configpath,
+        )->getall;
 
     # Undefined if no <filemeta> config block
     if (exists $confighash{filemeta}) {
@@ -52,13 +56,20 @@ sub initworker {
         croak "Missing <internalmeta> configuration block in config\n";
     }
 
-    my %cosargs = (
-        jwt_payload => '{"uids":[".*"]}',
-        conf => $configpath
-        );
-    $self->{cos} = new CIHM::TDR::REST::ContentServer (\%cosargs);
-    if (!$self->cos) {
-        croak "Missing ContentServer configuration\n";
+    # Undefined if no <swift> config block
+    if(exists $confighash{swift}) {
+        my %swiftopt = (
+            furl_options => { timeout => 120 }
+            );
+        foreach ("server","user","password","account", "furl_options") {
+            if (exists  $confighash{swift}{$_}) {
+                $swiftopt{$_}=$confighash{swift}{$_};
+            }
+        }
+        $self->{swift}=CIHM::Swift::Client->new(%swiftopt);
+        $self->{container}=$confighash{swift}{container};
+    } else {
+        croak "No <swift> configuration block in ".$self->configpath."\n";
     }
 }
 
@@ -68,13 +79,13 @@ sub log {
     my $self = shift;
     return $self->{logger};
 }
-sub config {
+sub swift {
     my $self = shift;
-    return $self->{config};
+    return $self->{swift};
 }
-sub cos {
+sub container {
     my $self = shift;
-    return $self->{cos};
+    return $self->{container};
 }
 sub filemeta {
     my $self = shift;
@@ -135,7 +146,8 @@ sub swing {
               metspath => $metspath,
               configpath => $configpath,
               log => $self->log,
-              cos => $self->cos,
+              swift => $self->swift,
+	      swiftcontainer => $self->container,
               filemeta => $self->filemeta,
               internalmeta => $self->internalmeta,
           })->process;

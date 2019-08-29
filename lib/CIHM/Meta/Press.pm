@@ -2,7 +2,9 @@ package CIHM::Meta::Press;
 
 use strict;
 use Carp;
-use CIHM::TDR::TDRConfig;
+use Config::General;
+use Log::Log4perl;
+
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::REST::cosearch;
 use CIHM::Meta::REST::copresentation;
@@ -21,10 +23,10 @@ been modified since the most recent date this tool has processed a document.
 
 =head1 SYNOPSIS
 
-    my $t_repo = CIHM::TDR::Replication->new($args);
+    my $press = CIHM::Meta::Press->new($args);
       where $args is a hash of arguments.
 
-      $args->{configpath} is as defined in CIHM::TDR::TDRConfig
+      $args->{configpath} is as used by Config::General
 
 =cut
 
@@ -34,15 +36,16 @@ sub new {
     my $self = bless {}, $class;
 
     if (ref($args) ne "HASH") {
-        die "Argument to CIHM::TDR::Replication->new() not a hash\n";
+        die "Argument to CIHM::Meta::Press->new() not a hash\n";
     };
     $self->{args} = $args;
 
-    $self->{config} = CIHM::TDR::TDRConfig->instance($self->configpath);
-    $self->{logger} = $self->{config}->logger;
+    Log::Log4perl->init_once("/etc/canadiana/tdr/log4perl.conf");
+    $self->{logger} = Log::Log4perl::get_logger("CIHM::TDR");
 
-    # Confirm there is a named repository block in the config
-    my %confighash = %{$self->{config}->get_conf};
+    my %confighash = new Config::General(
+        -ConfigFile => $args->{configpath},
+        )->getall;
 
     $self->{dbconf}={};
     # Undefined if no <internalmeta> config block
@@ -96,10 +99,6 @@ sub configpath {
 sub skip {
     my $self = shift;
     return $self->{args}->{skip};
-}
-sub config {
-    my $self = shift;
-    return $self->{config};
 }
 sub log {
     my $self = shift;
@@ -162,8 +161,7 @@ sub Press {
             new  CIHM::Meta::Press::Process(
                 {
                     aip => $aip,
-                    configpath => $self->configpath,
-                    config => $self->config,
+                    log => $self->log,
                     internalmeta => $self->internalmeta,
                     cosearch => $self->cosearch,
                     copresentation => $self->copresentation,

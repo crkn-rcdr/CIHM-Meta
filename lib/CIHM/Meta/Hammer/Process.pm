@@ -16,7 +16,7 @@ CIHM::Meta::Process
 
 =head1 SYNOPSIS
 
-    my $process = CIHM::TDR::Hammer::Process->new($args);
+    my $process = CIHM::Meta::Hammer::Process->new($args);
       where $args is a hash of arguments.
 
 =cut
@@ -26,15 +26,15 @@ sub new {
     my $self = bless {}, $class;
 
     if (ref($args) ne "HASH") {
-        die "Argument to CIHM::TDR::Replication->new() not a hash\n";
+        die "Argument to CIHM::Meta::Hammer::Process->new() not a hash\n";
     };
     $self->{args} = $args;
 
     if (!$self->log) {
         die "Log::Log4perl object parameter is mandatory\n";
     }
-    if (!$self->cos) {
-        die "cos object parameter is mandatory\n";
+    if (!$self->swift) {
+        die "swift object parameter is mandatory\n";
     }
     if (!$self->filemeta) {
         die "filemeta object parameter is mandatory\n";
@@ -70,9 +70,13 @@ sub log {
     my $self = shift;
     return $self->args->{log};
 }
-sub cos {
+sub swift {
     my $self = shift;
-    return $self->args->{cos};
+    return $self->args->{swift};
+}
+sub container {
+    my $self = shift;
+    return $self->args->{swiftcontainer};
 }
 sub filemeta {
     my $self = shift;
@@ -103,7 +107,7 @@ sub mets {
 sub process {
     my ($self) = @_;
 
-    # Grab the METS record from COS, and parse into METS (LibXML) object
+    # Grab the METS record from Swift, and parse into METS (LibXML) object
     $self->{mets} =
         CIHM::METS::parse->new({
             aip => $self->aip,
@@ -242,15 +246,15 @@ sub get_metadata {
     # Will retry for a second time.
     my $count=2;
 
-    my $cospath=$self->aip."/$file";
+    my $object=$self->aip."/$file";
     while ($count--) {
-        my $r = $self->cos->get('/'.$cospath);
+        my $r = $self->swift->object_get($self->container,$object);
         if ($r->code == 200) {
-            return $r->response->content;
+            return $r->content;
         } elsif ($r->code == 599) {
-            warn("Accessing $cospath returned code: " . $r->code."\n");
+            warn("Accessing $object returned code: " . $r->code."\n");
         } else {
-            die("Accessing $cospath returned code: " . $r->code."\n");
+            die("Accessing $object returned code: " . $r->code."\n");
         }
     }
 }
@@ -376,7 +380,7 @@ sub getFileData {
             if ($md5) {
                 $self->set_fmetadata($fmetadata,'jhovefilemd5',$md5);
             }
-            # Load from COS
+            # Load from Swift
             $jhovexml=$self->get_metadata($jhovefile)
         }
     } else {

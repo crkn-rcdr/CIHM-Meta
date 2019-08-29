@@ -2,7 +2,8 @@ package CIHM::Meta::SolrStream;
 
 use strict;
 use Carp;
-use CIHM::TDR::TDRConfig;
+use Config::General;
+use Log::Log4perl;
 use CIHM::Meta::REST::cosearch;
 use Role::REST::Client;
 use Try::Tiny;
@@ -18,7 +19,7 @@ CIHM::Meta::SolrStream - Stream cosearch from CouchDB to Solr.
     my $solr = CIHM::Meta::SolrStream->new($args);
       where $args is a hash of arguments.
 
-      $args->{configpath} is as defined in CIHM::TDR::TDRConfig
+      $args->{configpath} is as used by Config::General
       $args->{localdocument} is the couchdb local document the past sequence number is saved into and read from next iteration.
       $args->{since} is a numeric sequence number
 
@@ -44,11 +45,12 @@ sub new {
     };
     $self->{args} = $args;
 
-    $self->{config} = CIHM::TDR::TDRConfig->instance($self->configpath);
-    $self->{logger} = $self->{config}->logger;
+    Log::Log4perl->init_once("/etc/canadiana/tdr/log4perl.conf");
+    $self->{logger} = Log::Log4perl::get_logger("CIHM::TDR");
 
-    # Confirm there is a named repository block in the config
-    my %confighash = %{$self->{config}->get_conf};
+    my %confighash = new Config::General(
+        -ConfigFile => $self->configpath,
+        )->getall;
 
     # Undefined if no <cosearch> config block
     if (exists $confighash{cosearch}) {
@@ -96,10 +98,6 @@ sub limit {
 sub localdocument {
     my $self = shift;
     return $self->{args}->{localdocument};
-}
-sub config {
-    my $self = shift;
-    return $self->{config};
 }
 sub log {
     my $self = shift;

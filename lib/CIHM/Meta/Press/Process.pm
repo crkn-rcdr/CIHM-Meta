@@ -2,7 +2,6 @@ package CIHM::Meta::Press::Process;
 
 use 5.014;
 use strict;
-use CIHM::TDR::TDRConfig;
 use Try::Tiny;
 use JSON;
 use DateTime;
@@ -17,8 +16,6 @@ CIHM::Meta::Press
     CIHM::Meta::Press::Process->new($args);
       where $args is a hash of arguments.
 
-      $args->{configpath} is as defined in CIHM::TDR::TDRConfig
-
 =cut
 
 sub new {
@@ -30,8 +27,8 @@ sub new {
     };
     $self->{args} = $args;
 
-    if (!$self->config) {
-        die "TDRConfig object parameter is mandatory\n";
+    if (!$self->log) {
+        die "Log::Log4perl object parameter is mandatory\n";
     }
     if (!$self->internalmeta) {
         die "internalmeta object parameter is mandatory\n";
@@ -63,17 +60,13 @@ sub aip {
     my $self = shift;
     return $self->args->{aip};
 }
-sub configpath {
-    my $self = shift;
-    return $self->args->{configpath};
-}
 sub config {
     my $self = shift;
     return $self->args->{config};
 }
 sub log {
     my $self = shift;
-    return $self->config->logger;
+    return $self->args->{log};
 }
 sub internalmeta {
     my $self = shift;
