@@ -3,7 +3,7 @@ package CIHM::Meta::SolrStream;
 use strict;
 use Carp;
 use CIHM::TDR::TDRConfig;
-use CIHM::TDR::REST::cosearch;
+use CIHM::Meta::REST::cosearch;
 use Role::REST::Client;
 use Try::Tiny;
 use Data::Dumper;
@@ -15,7 +15,7 @@ CIHM::Meta::SolrStream - Stream cosearch from CouchDB to Solr.
 
 =head1 SYNOPSIS
 
-    my $t_repo = CIHM::TDR::SolrStream->new($args);
+    my $solr = CIHM::Meta::SolrStream->new($args);
       where $args is a hash of arguments.
 
       $args->{configpath} is as defined in CIHM::TDR::TDRConfig
@@ -40,7 +40,7 @@ sub new {
     my $self = bless {}, $class;
 
     if (ref($args) ne "HASH") {
-        die "Argument to CIHM::TDR::SolrStream->new() not a hash\n";
+        die "Argument to CIHM::Meta::SolrStream->new() not a hash\n";
     };
     $self->{args} = $args;
 
@@ -52,7 +52,7 @@ sub new {
 
     # Undefined if no <cosearch> config block
     if (exists $confighash{cosearch}) {
-        $self->{cosearch} = new CIHM::TDR::REST::cosearch (
+        $self->{cosearch} = new CIHM::Meta::REST::cosearch (
             server => $confighash{cosearch}{server},
             database => $confighash{cosearch}{database},
             type   => 'application/json',

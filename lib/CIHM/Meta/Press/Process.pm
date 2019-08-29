@@ -3,11 +3,7 @@ package CIHM::Meta::Press::Process;
 use 5.014;
 use strict;
 use CIHM::TDR::TDRConfig;
-use CIHM::TDR::REST::internalmeta;
-use CIHM::TDR::REST::cosearch;
-use CIHM::TDR::REST::copresentation;
 use Try::Tiny;
-use Data::Dumper;
 use JSON;
 use DateTime;
 
@@ -18,7 +14,7 @@ CIHM::Meta::Press
 
 =head1 SYNOPSIS
 
-    CIHM::TDR::Press::Process->new($args);
+    CIHM::Meta::Press::Process->new($args);
       where $args is a hash of arguments.
 
       $args->{configpath} is as defined in CIHM::TDR::TDRConfig

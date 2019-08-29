@@ -6,10 +6,9 @@ use AnyEvent;
 use Try::Tiny;
 use JSON;
 use CIHM::TDR::TDRConfig;
-use CIHM::TDR::Repository;
-use CIHM::TDR::REST::filemeta;
-use CIHM::TDR::REST::internalmeta;
 use CIHM::TDR::REST::ContentServer;
+use CIHM::Meta::REST::filemeta;
+use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::Hammer::Process;
 
 our $self;
@@ -24,20 +23,12 @@ sub initworker {
 
     $self->{config} = CIHM::TDR::TDRConfig->instance($configpath);
     $self->{logger} = $self->{config}->logger;
-
-    if (! ($self->{repo} = new CIHM::TDR::Repository({
-        configpath => $configpath
-                                                     }))) {
-        croak "Wasn't able to build Repository object";
-    }
-
-    # Confirm there is a named repository block in the config
     my %confighash = %{$self->{config}->get_conf};
 
 
     # Undefined if no <filemeta> config block
     if (exists $confighash{filemeta}) {
-        $self->{filemeta} = new CIHM::TDR::REST::filemeta (
+        $self->{filemeta} = new CIHM::Meta::REST::filemeta (
             server => $confighash{filemeta}{server},
             database => $confighash{filemeta}{database},
             type   => 'application/json',
@@ -50,7 +41,7 @@ sub initworker {
 
     # Undefined if no <internalmeta> config block
     if (exists $confighash{internalmeta}) {
-        $self->{internalmeta} = new CIHM::TDR::REST::internalmeta (
+        $self->{internalmeta} = new CIHM::Meta::REST::internalmeta (
             server => $confighash{internalmeta}{server},
             database => $confighash{internalmeta}{database},
             type   => 'application/json',
@@ -93,11 +84,6 @@ sub internalmeta {
     my $self = shift;
     return $self->{internalmeta};
 }
-sub repo {
-    my $self = shift;
-    return $self->{repo};
-}
-
 
 sub warnings {
     my $warning = shift;
@@ -148,11 +134,10 @@ sub swing {
               aip => $aip,
               metspath => $metspath,
               configpath => $configpath,
-              config => $self->config,
+              log => $self->log,
               cos => $self->cos,
               filemeta => $self->filemeta,
               internalmeta => $self->internalmeta,
-              repo => $self->repo
           })->process;
   } catch {
       $status = 0;

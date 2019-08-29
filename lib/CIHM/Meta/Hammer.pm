@@ -4,7 +4,7 @@ use strict;
 use Carp;
 use CIHM::TDR::TDRConfig;
 use CIHM::TDR::Repository;
-use CIHM::TDR::REST::internalmeta;
+use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::Hammer::Worker;
 
 use Coro::Semaphore;
@@ -17,12 +17,12 @@ use Data::Dumper;
 
 =head1 NAME
 
-CIHM::Meta::Hammer - Normalize metadata from TDR and post to "internalmeta"
+CIHM::Meta::Hammer - Normalize metadata from repository and post to "internalmeta"
 
 
 =head1 SYNOPSIS
 
-    my $hammer = CIHM::TDR::Hammer->new($args);
+    my $hammer = CIHM::Meta::Hammer->new($args);
       where $args is a hash of arguments.
 
       $args->{configpath} is as defined in CIHM::TDR::TDRConfig
@@ -34,7 +34,7 @@ sub new {
     my $self = bless {}, $class;
 
     if (ref($args) ne "HASH") {
-        die "Argument to CIHM::TDR::Replication->new() not a hash\n";
+        die "Argument to CIHM::Meta::Hammer->new() not a hash\n";
     };
     $self->{args} = $args;
 
@@ -78,7 +78,7 @@ sub new {
 
     # Undefined if no <internalmeta> config block
     if (exists $confighash{internalmeta}) {
-        $self->{internalmeta} = new CIHM::TDR::REST::internalmeta (
+        $self->{internalmeta} = new CIHM::Meta::REST::internalmeta (
             server => $confighash{internalmeta}{server},
             database => $confighash{internalmeta}{database},
             type   => 'application/json',

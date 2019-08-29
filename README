@@ -4,21 +4,14 @@ This is a module used by Canadiana to impliment the metadata bus.
 
 Tools:
 
+* hammer - reads METS data from the repository and generates a JSON file
+           stored in the 'internalmeta' couchdb database
+* solrstream - Streams updates in 'cosearch' CouchDB database to Solr.
 * reposync - Keeps 'internalmeta' and 'wipmeta' CouchDB databases current
              about the public availability of replicas of AIP content
              in repositories.
-* hammer - reads METS data from the repository and generates a JSON file
-           stored in the 'internalmeta' couchdb database
 * press  - Checks for 'internalmeta' updates and pushes updates to
            'cosearch' and 'copresentation' databases.
-* solrstream - Streams updates in 'cosearch' CouchDB database to Solr.
-
-* eqod* - tools used to load special 'tag' data from a Heritage related
-          project where EQOD was hired to enter data.
-
-* tdr-sipvalidate - Used when SIP validation rules were updated, and we
-                    wanted to check if the most recent SIP in all existing
-                    AIPs conformed.
 
 
 INSTALLATION

@@ -11,7 +11,7 @@ WriteMakefile(
     LICENSE          => 'artistic_2',
     PL_FILES         => {},
     "EXE_FILES" => [
-      "bin/reposync", "bin/eqod", "bin/hammer", "bin/eqodsync", "bin/tdr-sipvalidate", "bin/solrstream", "bin/press", "bin/eqod_test"
+      "bin/reposync", "bin/hammer", "bin/solrstream", "bin/press"
     ],
     MIN_PERL_VERSION => 5.006,
     CONFIGURE_REQUIRES => {

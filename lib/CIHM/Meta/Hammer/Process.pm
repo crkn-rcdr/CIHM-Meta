@@ -2,10 +2,6 @@ package CIHM::Meta::Hammer::Process;
 
 use 5.014;
 use strict;
-use CIHM::TDR::TDRConfig;
-use CIHM::TDR::Repository;
-use CIHM::TDR::REST::filemeta;
-use CIHM::TDR::REST::internalmeta;
 use CIHM::METS::parse;
 use XML::LibXML;
 use Try::Tiny;
@@ -20,10 +16,8 @@ CIHM::Meta::Process
 
 =head1 SYNOPSIS
 
-    my $t_repo = CIHM::TDR::Hammer::Process->new($args);
+    my $process = CIHM::TDR::Hammer::Process->new($args);
       where $args is a hash of arguments.
-
-      $args->{configpath} is as defined in CIHM::TDR::TDRConfig
 
 =cut
 
@@ -36,8 +30,8 @@ sub new {
     };
     $self->{args} = $args;
 
-    if (!$self->config) {
-        die "TDRConfig object parameter is mandatory\n";
+    if (!$self->log) {
+        die "Log::Log4perl object parameter is mandatory\n";
     }
     if (!$self->cos) {
         die "cos object parameter is mandatory\n";
@@ -47,9 +41,6 @@ sub new {
     }
     if (!$self->internalmeta) {
         die "internalmeta object parameter is mandatory\n";
-    }
-    if (!$self->repo) {
-        die "repo object parameter is mandatory\n";
     }
     if (!$self->aip) {
         die "Parameter 'aip' is mandatory\n";
@@ -75,17 +66,9 @@ sub metspath {
     my $self = shift;
     return $self->args->{metspath};
 }
-sub configpath {
-    my $self = shift;
-    return $self->args->{configpath};
-}
-sub config {
-    my $self = shift;
-    return $self->args->{config};
-}
 sub log {
     my $self = shift;
-    return $self->config->logger;
+    return $self->args->{log};
 }
 sub cos {
     my $self = shift;
@@ -102,10 +85,6 @@ sub filemetadata {
 sub internalmeta {
     my $self = shift;
     return $self->args->{internalmeta};
-}
-sub repo {
-    my $self = shift;
-    return $self->args->{repo};
 }
 sub updatedoc {
     my $self = shift;

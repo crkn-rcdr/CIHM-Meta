@@ -4,9 +4,9 @@ use strict;
 use Carp;
 use CIHM::TDR::TDRConfig;
 use CIHM::TDR::REST::tdrepo;
-use CIHM::TDR::REST::internalmeta;
-use CIHM::TDR::REST::wipmeta;
 use CIHM::TDR::REST::ContentServer;
+use CIHM::Meta::REST::wipmeta;
+use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::REST::dipstaging;
 use JSON;
 use Date::Parse;
@@ -21,7 +21,7 @@ CIHM::Meta::RepoSync - Synchronize specific data between
 
 =head1 SYNOPSIS
 
-    my $t_repo = CIHM::TDR::Replication->new($args);
+    my $reposync = CIHM::Meta::RepoSync->new($args);
       where $args is a hash of arguments.
 
       $args->{configpath} is as defined in CIHM::TDR::TDRConfig
@@ -33,7 +33,7 @@ sub new {
     my $self = bless {}, $class;
 
     if (ref($args) ne "HASH") {
-        die "Argument to CIHM::TDR::Replication->new() not a hash\n";
+        die "Argument to CIHM::Meta::RepoSync->new() not a hash\n";
     };
     $self->{args} = $args;
 
@@ -59,7 +59,7 @@ sub new {
 
     # Undefined if no <internalmeta> config block
     if (exists $confighash{internalmeta}) {
-        $self->{internalmeta} = new CIHM::TDR::REST::internalmeta (
+        $self->{internalmeta} = new CIHM::Meta::REST::internalmeta (
             server => $confighash{internalmeta}{server},
             database => $confighash{internalmeta}{database},
             type   => 'application/json',
@@ -69,7 +69,7 @@ sub new {
     }
     # Undefined if no <wipmeta> config block
     if (exists $confighash{wipmeta}) {
-        $self->{wipmeta} = new CIHM::TDR::REST::wipmeta (
+        $self->{wipmeta} = new CIHM::Meta::REST::wipmeta (
             server => $confighash{wipmeta}{server},
             database => $confighash{wipmeta}{database},
             type   => 'application/json',

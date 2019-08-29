@@ -3,9 +3,9 @@ package CIHM::Meta::Press;
 use strict;
 use Carp;
 use CIHM::TDR::TDRConfig;
-use CIHM::TDR::REST::internalmeta;
-use CIHM::TDR::REST::cosearch;
-use CIHM::TDR::REST::copresentation;
+use CIHM::Meta::REST::internalmeta;
+use CIHM::Meta::REST::cosearch;
+use CIHM::Meta::REST::copresentation;
 use CIHM::Meta::Press::Process;
 use Try::Tiny;
 use Data::Dumper;
@@ -47,7 +47,7 @@ sub new {
     $self->{dbconf}={};
     # Undefined if no <internalmeta> config block
     if (exists $confighash{internalmeta}) {
-        $self->{internalmeta} = new CIHM::TDR::REST::internalmeta (
+        $self->{internalmeta} = new CIHM::Meta::REST::internalmeta (
             server => $confighash{internalmeta}{server},
             database => $confighash{internalmeta}{database},
             type   => 'application/json',
@@ -59,7 +59,7 @@ sub new {
     }
     # Undefined if no <cosearch> config block
     if (exists $confighash{cosearch}) {
-        $self->{cosearch} = new CIHM::TDR::REST::cosearch (
+        $self->{cosearch} = new CIHM::Meta::REST::cosearch (
             server => $confighash{cosearch}{server},
             database => $confighash{cosearch}{database},
             type   => 'application/json',
@@ -71,7 +71,7 @@ sub new {
     }
     # Undefined if no <copresentation> config block
     if (exists $confighash{copresentation}) {
-        $self->{copresentation} = new CIHM::TDR::REST::copresentation (
+        $self->{copresentation} = new CIHM::Meta::REST::copresentation (
             server => $confighash{copresentation}{server},
             database => $confighash{copresentation}{database},
             type   => 'application/json',
