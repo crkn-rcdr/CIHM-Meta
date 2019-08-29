@@ -62,20 +62,26 @@ sub update_basic_full {
   my ($self, $uid, $updatedoc) = @_;
   my ($res, $code, $data);
 
-  # Special case, rather than modify the other update functions
-  if (exists $updatedoc->{repos}) {
-      $updatedoc->{repos}= decode_json($updatedoc->{repos});
+
+  # Special case, rather than modify the other update functions to not encode values as json strings.
+  my %newdoc = (
+      'repos' => decode_json($updatedoc->{repos}),
+      'manifestdate' => $updatedoc->{manifestdate}
+      );
+
+  if (exists $updatedoc->{METS}) {
+      $newdoc{METS}= decode_json($updatedoc->{METS});
   }
   #  Post directly as JSON data (Different from other couch databases)
   $self->type("application/json");
-  $res = $self->post("/".$self->{database}."/_design/sync/_update/basic/".$uid, $updatedoc);
+  $res = $self->post("/".$self->{database}."/_design/sync/_update/basic/".$uid, \%newdoc,  {deserializer => 'application/json'});
 
   if ($res->code != 201 && $res->code != 200) {
       warn "_update/basic/$uid POST return code: " . $res->code . "\n";
   }
 
   # _update function only returns a string and not data, so nothing to return here
-  return {};
+  return $res->data;
 }
 
 1;

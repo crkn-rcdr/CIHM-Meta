@@ -90,14 +90,14 @@ sub new {
             );
     }
     $self->{dbs}=[];
+    if ($self->dipstaging) {
+        push $self->dbs, $self->dipstaging;
+    }
     if ($self->internalmeta) {
         push $self->dbs, $self->internalmeta;
     }
     if ($self->wipmeta) {
         push $self->dbs, $self->wipmeta;
-    }
-    if ($self->dipstaging) {
-        push $self->dbs, $self->dipstaging;
     }
     if (! @{$self->dbs}) {
         croak "No output databases defined\n";
