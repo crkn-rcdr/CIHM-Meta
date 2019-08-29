@@ -13,16 +13,15 @@ use Types::Standard qw(HashRef Str Int Enum HasMethods);
 
 =head1 NAME
 
-CIHM::TDR::REST::dipstaging - Subclass of Role::REST::Client used to
+CIHM::Meta::REST::dipstaging - Subclass of Role::REST::Client used to
 interact with "dipstaging" CouchDB databases
 
 =head1 SYNOPSIS
 
-    my $t_repo = CIHM::TDR::REST::dipstaging->new($args);
+    my $dipstaging = CIHM::Meta::REST::dipstaging->new($args);
       where $args is a hash of arguments.  In addition to arguments
       processed by Role::REST::Client we have the following 
 
-      $args->{conf} is as defined in CIHM::TDR::TDRConfig
       $args->{database} is the Couch database name.
 
 =cut
@@ -32,7 +31,6 @@ sub BUILD {
     my $args = shift;
 
     $self->{LocalTZ} = DateTime::TimeZone->new( name => 'local' );
-    $self->{conf} = $args->{conf}; 
     $self->{database} = $args->{database};
     $self->set_persistent_header('Accept' => 'application/json');
 }
