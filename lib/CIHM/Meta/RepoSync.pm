@@ -10,6 +10,7 @@ use CIHM::Swift::Client;
 use CIHM::Meta::REST::wipmeta;
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::REST::dipstaging;
+use CIHM::Meta::REST::repoanalysis;
 use JSON;
 use Date::Parse;
 use DateTime;
@@ -89,6 +90,16 @@ sub new {
             clientattrs => {timeout => 3600},
             );
     }
+    # Undefined if no <repoanalysis> config block
+    if (exists $confighash{repoanalysis}) {
+        $self->{dipstaging} = new CIHM::Meta::REST::repoanalysis (
+            server => $confighash{repoanalysis}{server},
+            database => $confighash{repoanalysis}{database},
+            type   => 'application/json',
+            conf   => $self->configpath,
+            clientattrs => {timeout => 3600},
+            );
+    }
     $self->{dbs}=[];
     if ($self->dipstaging) {
         push $self->dbs, $self->dipstaging;
@@ -98,6 +109,9 @@ sub new {
     }
     if ($self->wipmeta) {
         push $self->dbs, $self->wipmeta;
+    }
+    if ($self->repoanalysis) {
+        push $self->dbs, $self->repoanalysis;
     }
     if (! @{$self->dbs}) {
         croak "No output databases defined\n";
@@ -149,6 +163,10 @@ sub wipmeta {
 sub dipstaging {
     my $self = shift;
     return $self->{dipstaging};
+}
+sub repoanalysis {
+    my $self = shift;
+    return $self->{repoanalysis};
 }
 sub swift {
     my $self = shift;
