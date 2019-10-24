@@ -102,16 +102,16 @@ sub new {
     }
     $self->{dbs}=[];
     if ($self->dipstaging) {
-        push $self->dbs, $self->dipstaging;
+        push @{$self->dbs}, $self->dipstaging;
     }
     if ($self->internalmeta) {
-        push $self->dbs, $self->internalmeta;
+        push @{$self->dbs}, $self->internalmeta;
     }
     if ($self->wipmeta) {
-        push $self->dbs, $self->wipmeta;
+        push @{$self->dbs}, $self->wipmeta;
     }
     if ($self->repoanalysis) {
-        push $self->dbs, $self->repoanalysis;
+        push @{$self->dbs}, $self->repoanalysis;
     }
     if (! @{$self->dbs}) {
         croak "No output databases defined\n";

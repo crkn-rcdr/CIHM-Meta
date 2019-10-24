@@ -144,11 +144,11 @@ sub process {
             next if substr($doc->{id},0,1) eq '_';
 
             if ($doc->{deleted}) {
-                push $deletestream, $doc->{id};
+                push @{$deletestream}, $doc->{id};
             } else {
                 delete $doc->{doc}->{'_rev'};
                 delete $doc->{doc}->{'_id'};
-                push $poststream, $doc->{doc};
+                push @{$poststream}, $doc->{doc};
             }
         }
         if (scalar @{$deletestream}) {

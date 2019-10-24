@@ -140,7 +140,7 @@ sub process {
         if ($i == 0) {
             # Item processing
             # Copy fields from $idata , skipping some...
-            foreach my $key (keys $idata) {
+            foreach my $key (keys %{$idata}) {
                 switch ($key) {
                     case "label" {}
                     case "contributor" {}
@@ -174,7 +174,7 @@ sub process {
 
         if (exists $metsdata->[$i]->{'canonicalMaster'}) {
             my $filedata=$self->getFileData($metsdata->[$i]->{'canonicalMaster'},'physical');
-            foreach my $key (keys $filedata) {
+            foreach my $key (keys %{$filedata}) {
                 $metsdata->[$i]->{"canonicalMaster${key}"}=$filedata->{$key};
                 if ($key eq 'Width') {
                     $self->pageinfo->{dimensions}++;
@@ -183,7 +183,7 @@ sub process {
         }
         if (exists $metsdata->[$i]->{'canonicalDownload'}) {
             my $filedata=$self->getFileData($metsdata->[$i]->{'canonicalDownload'},'physical');
-            foreach my $key (keys $filedata) {
+            foreach my $key (keys %{$filedata}) {
                 $metsdata->[$i]->{"canonicalDownload${key}"}=$filedata->{$key};
                 if ($key eq 'Width') {
                     $self->pageinfo->{dimensions}++;
@@ -192,7 +192,7 @@ sub process {
         }
 
         # at end of loop, after field names possibly updated
-        foreach my $field (keys $metsdata->[$i]) {
+        foreach my $field (keys %{$metsdata->[$i]}) {
             $hammerfields{$field}=1;
         }
     }
@@ -303,7 +303,7 @@ sub saveFileMeta {
     my $self=shift;
 
     if ($self->filemetadata) {
-        my @files=sort keys $self->filemetadata;
+        my @files=sort keys %{$self->filemetadata};
         my @update;
 
         foreach my $file (@files) {

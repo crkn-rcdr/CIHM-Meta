@@ -153,8 +153,8 @@ sub adddocument {
         if (exists $aipdata->{'parent'}) {
             die $self->aip . " is a series and has parent field\n" ;
         }
-        if (scalar(keys $self->presentdoc) != 1) {
-            die $self->aip . " is a series and has " .scalar(keys $self->presentdoc) . " records\n" ;
+        if (scalar(keys %{$self->presentdoc}) != 1) {
+            die $self->aip . " is a series and has " .scalar(keys %{$self->presentdoc}) . " records\n" ;
         }
         if ($self->presentdoc->{$self->aip}->{'type'} ne 'series') {
             die $self->aip . " is a series, but record type not series\n" ;
@@ -179,8 +179,8 @@ sub adddocument {
         $self->process_externalmetaHP();
     }
 
-    if (scalar(keys $self->searchdoc) != scalar(keys $self->presentdoc)) {
-        warn $self->aip . " had ". scalar(keys $self->searchdoc) . " searchdoc and ". scalar(keys $self->presentdoc) . " presentdoc\n" ;
+    if (scalar(keys %{$self->searchdoc}) != scalar(keys %{$self->presentdoc})) {
+        warn $self->aip . " had ". scalar(keys %{$self->searchdoc}) . " searchdoc and ". scalar(keys %{$self->presentdoc}) . " presentdoc\n" ;
         print $self->aip . " had doc count discrepancy\n";
     };
 
@@ -253,9 +253,9 @@ sub update_couch {
     # Post the updated documents...
     # TODO: Ensure $docid within $self->aip , and any IDs no longer 
     # referenced are removed (IE: fewer pages in update).
-    foreach my $docid (keys $docs) {
+    foreach my $docid (keys %{$docs}) {
         $docs->{$docid}->{"_id"}=$docid;
-        push $postdoc->{docs} , $docs->{$docid};
+        push @{$postdoc->{docs}} , $docs->{$docid};
     }
 
     $dbo->type("application/json");
@@ -300,7 +300,7 @@ sub delete_couch {
                 "_id", $thisdoc->{key},
                 "_rev", $thisdoc->{value}->{rev},
                 "_deleted", JSON::true);
-            push $postdoc->{docs}, \%thisdoc;
+            push @{$postdoc->{docs}}, \%thisdoc;
         }
     } else {
         die "update_couch (".$dbo->{database}.") GET _all_docs return code: " . $res->code . "\n";
@@ -319,7 +319,7 @@ sub delete_couch {
                     "_id", $thisdoc->{key},
                     "_rev", $thisdoc->{value}->{rev},
                     "_deleted", JSON::true);
-                push $postdoc->{docs}, \%thisdoc;
+                push @{$postdoc->{docs}}, \%thisdoc;
             }
         }
     } else {
@@ -405,7 +405,7 @@ sub process_hammer {
         }
 
         # Hash of all fields that are set
-        my %docfields = map { $_ => 1 } keys $doc;
+        my %docfields = map { $_ => 1 } keys %{$doc};
 
         $self->searchdoc->{$key}={};
         # Copy the fields for cosearch
@@ -486,7 +486,7 @@ sub mergemulti {
                 }
             }
             if (! $found) {
-                push $doc->{$field}, $mval;
+                push @{$doc->{$field}}, $mval;
             }
         }
     }
@@ -498,11 +498,11 @@ sub process_externalmetaHP {
     # Grab the data for the CouchDB document
     my $emHP = $self->internalmeta->get_aip($self->aip."/externalmetaHP.json");
 
-    foreach my $seq (keys $emHP) {
+    foreach my $seq (keys %{$emHP}) {
         my $pageid=$self->aip.".".$seq;
         my $tags = $emHP->{$seq};
         if (defined $self->searchdoc->{$pageid}) {
-            my %tagfields = map { $_ => 1 } keys $tags;
+            my %tagfields = map { $_ => 1 } keys %{$tags};
 
             # Copy the fields for cosearch && copresentation
             # In parent as well..
@@ -613,7 +613,7 @@ sub process_components {
     my @order;
 
 
-    foreach my $thisdoc (keys $self->presentdoc) {
+    foreach my $thisdoc (keys %{$self->presentdoc}) {
         next if ($self->presentdoc->{$thisdoc}->{'type'} ne 'page');
         $seq{$self->presentdoc->{$thisdoc}->{'seq'}+0}=
             $self->presentdoc->{$thisdoc}->{'key'};
