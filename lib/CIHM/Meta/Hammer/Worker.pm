@@ -9,7 +9,7 @@ use Config::General;
 use Log::Log4perl;
 
 use CIHM::Swift::Client;
-use CIHM::Meta::REST::filemeta;
+use CIHM::Meta::REST::cantaloupe;
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::Hammer::Process;
 
@@ -30,17 +30,19 @@ sub initworker {
         -ConfigFile => $configpath,
         )->getall;
 
-    # Undefined if no <filemeta> config block
-    if (exists $confighash{filemeta}) {
-        $self->{filemeta} = new CIHM::Meta::REST::filemeta (
-            server => $confighash{filemeta}{server},
-            database => $confighash{filemeta}{database},
+    # Undefined if no <cantaloupe> config block
+    if (exists $confighash{cantaloupe}) {
+        $self->{cantaloupe} = new CIHM::Meta::REST::cantaloupe (
+            url => $confighash{cantaloupe}{url},
+            key => $confighash{cantaloupe}{key},
+            password => $confighash{cantaloupe}{password},
+	    jwt_payload => '{"uids":[".*"]}',
             type   => 'application/json',
             conf   => $configpath,
             clientattrs => {timeout => 3600},
             );
     } else {
-        croak "Missing <filemeta> configuration block in config\n";
+        croak "Missing <cantaloupe> configuration block in config\n";
     }
 
     # Undefined if no <internalmeta> config block
@@ -87,9 +89,9 @@ sub container {
     my $self = shift;
     return $self->{container};
 }
-sub filemeta {
+sub cantaloupe {
     my $self = shift;
-    return $self->{filemeta};
+    return $self->{cantaloupe};
 }
 sub internalmeta {
     my $self = shift;
@@ -148,7 +150,7 @@ sub swing {
               log => $self->log,
               swift => $self->swift,
 	      swiftcontainer => $self->container,
-              filemeta => $self->filemeta,
+              cantaloupe => $self->cantaloupe,
               internalmeta => $self->internalmeta,
           })->process;
   } catch {

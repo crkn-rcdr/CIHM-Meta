@@ -36,11 +36,11 @@ sub new {
     if (!$self->swift) {
         die "swift object parameter is mandatory\n";
     }
-    if (!$self->filemeta) {
-        die "filemeta object parameter is mandatory\n";
-    }
     if (!$self->internalmeta) {
         die "internalmeta object parameter is mandatory\n";
+    }
+    if (!$self->cantaloupe) {
+        die "cantaloupe object parameter is mandatory\n";
     }
     if (!$self->aip) {
         die "Parameter 'aip' is mandatory\n";
@@ -78,10 +78,6 @@ sub container {
     my $self = shift;
     return $self->args->{swiftcontainer};
 }
-sub filemeta {
-    my $self = shift;
-    return $self->args->{filemeta};
-}
 sub filemetadata {
     my $self = shift;
     return $self->{filemetadata};
@@ -89,6 +85,10 @@ sub filemetadata {
 sub internalmeta {
     my $self = shift;
     return $self->args->{internalmeta};
+}
+sub cantaloupe {
+    my $self = shift;
+    return $self->args->{cantaloupe};
 }
 sub updatedoc {
     my $self = shift;
@@ -121,7 +121,6 @@ sub process {
     my $metsdata = $self->mets->metsdata("physical");
 
     # Build and then parse the "cmr" data
-    # TODO: incrementally replace with new CIHM::Meta::Hammer::METS functions
     my $idata = $self->mets->extract_idata();
     if (scalar(@{$idata}) != 1) {
         die "Need exactly 1 array element for item data\n";
@@ -236,8 +235,6 @@ sub process {
         die "Return code $return for internalmeta->put_attachment(" 
             . $self->aip . ")\n";
     }
-
-    $self->saveFileMeta();
 }
 
 sub get_metadata {
@@ -281,57 +278,31 @@ sub loadFileMeta {
     if (! $self->filemetadata) {
         $self->{filemetadata}={};
 
-        $self->filemeta->type("application/json");
-        my $res = $self->filemeta->get("/".$self->filemeta->database."/_all_docs",{
-            include_docs => 'true',
-            startkey => '"'.$self->aip.'/"',
-            endkey => '"'.$self->aip.'/'.chr(0xfff0).'"'
+	my $prefix=$self->aip.'/';
+	# List of objects with AIP as prefix
+	my %containeropt = (
+	    "prefix" => $prefix
+	);
 
-                                       }, {deserializer => 'application/json'});
-        if ($res->code == 200) {
-            foreach my $row (@{$res->data->{rows}}) {
-                $self->{filemetadata}->{$row->{key}}=$row->{doc};
-            }
-        }
-        else {
-            die "loadFileMeta return code: ".$res->code."\n"; 
-        }
-    }
-}
+	# Need to loop possibly multiple times as Swift has a maximum of
+	# 10,000 names.
+	my $more=1;
+	while ($more) {
+	    my $bagdataresp = $self->swift->container_get($self->container,
+							  \%containeropt);
+	    if ($bagdataresp->code != 200) {
+		die "container_get(".$self->container.") for $prefix returned ". $bagdataresp->code . " - " . $bagdataresp->message. "\n";
+	    };
+	    $more=scalar(@{$bagdataresp->content});
+	    if ($more) {
+		$containeropt{'marker'}=$bagdataresp->content->[$more-1]->{name};
 
-sub saveFileMeta {
-    my $self=shift;
-
-    if ($self->filemetadata) {
-        my @files=sort keys %{$self->filemetadata};
-        my @update;
-
-        foreach my $file (@files) {
-            my $thisfile=$self->filemetadata->{$file};
-            if ($thisfile->{changed}) {
-                delete $thisfile->{changed};
-                push @update, $thisfile;
-            }
-        }
-
-        if (@update) {
-            my $res = $self->filemeta->post("/".$self->filemeta->database."/_bulk_docs",
-                                            { docs => \@update },
-                                            {deserializer => 'application/json'});
-            if ($res->code != 201) {
-                die "saveFileMeta _bulk_docs returned: ".$res->code."\n";
-            }
-        }
-    }
-}
-
-sub set_fmetadata {
-    my ($self,$fmetadata,$key,$value) = @_;
-
-    if (! exists $fmetadata->{$key} ||
-        $fmetadata->{$key} ne $value) {
-        $fmetadata->{$key}=$value;
-        $fmetadata->{'changed'}=1;
+		foreach my $object (@{$bagdataresp->content}) {
+		    my $file=substr $object->{name},(length $prefix);
+		    $self->filemetadata->{$file}=$object;
+		}
+	    }
+	}
     }
 }
 
@@ -339,125 +310,50 @@ sub set_fmetadata {
 sub getFileData {
     my ($self,$pathname,$structtype) = @_;
 
-    # Always return at least a blank
-    my $filedata={};
-    my $jhovexml;
-
-    # Load if not already loaded
-    $self->loadFileMeta();
-    my $fmetadata=$self->filemetadata->{$pathname};
-
-    # If record doesn't already exist, create one.
-    if (! $fmetadata) {
-        $fmetadata={
-            '_id' => $pathname,
-            changed => 1
-        };
-        $self->filemetadata->{$pathname}=$fmetadata;
-    }
-
-    my $divs=$self->mets->fileinfo("physical")->{'divs'};
-    my $fileindex=$self->mets->fileinfo("physical")->{'fileindex'};
-
     # Strip off the AIP ID
     my $pathinaip=substr($pathname , index($pathname,'/')+1);
 
-    if (! exists $fileindex->{$pathinaip}) {
+    # Always return at least a blank
+    # Set with: Size, MD5, Width, Height
+    my $filedata={};
+
+    # Load if not already loaded
+    $self->loadFileMeta();
+    my $fmetadata=$self->filemetadata->{$pathinaip};
+
+
+    # If record doesn't already exist, create one.
+    if (! $fmetadata) {
+	die "No file metadata for $pathname in Swift\n";
+    }
+
+    my $fileindex=$self->mets->fileinfo("physical")->{'fileindex'}->{$pathinaip};
+    if (! $fileindex) {
         die "fileindex for $pathname doesn't exist\n";
     }
-    my $div=$divs->[$fileindex->{$pathinaip}->{'index'}];
-    my $use=$fileindex->{$pathinaip}->{'use'};
 
-    if (exists $div->{$use.'.jhove'}) {
-        my $jhovefile=$div->{$use.'.jhove'};
-        my $md5=$self->get_filemd5($jhovefile);
-
-        # Only load jhove file if needed.
-        # (IE: We haven't already stored information in couch document)
-        if (!$md5 || ! exists $fmetadata->{'jhovefilemd5'} ||
-            $md5 ne $fmetadata->{'jhovefilemd5'}) {
-            $self->set_fmetadata($fmetadata,'jhovefilename',$jhovefile);
-            if ($md5) {
-                $self->set_fmetadata($fmetadata,'jhovefilemd5',$md5);
-            }
-            # Load from Swift
-            $jhovexml=$self->get_metadata($jhovefile)
-        }
-    } else {
-        # If attachment exists, load
-        if (exists $fmetadata->{'_attachments'} &&
-            exists $fmetadata->{'_attachments'}->{'jhove.xml'}) {
-            $jhovexml=$self->filemeta->get_attachment(uri_escape($pathname),"jhove.xml");
-        }
+    if (exists $fmetadata->{bytes}) {
+	$filedata->{'Size'}=$fmetadata->{bytes};
+    }
+    if (exists $fmetadata->{hash}) {
+	$filedata->{'MD5'}=$fmetadata->{hash};
     }
 
-    if ($jhovexml) {
-        my $jhove = eval { XML::LibXML->new->parse_string($jhovexml) };
-        if ($@) {
-            warn "parse_string for $pathname: $@\n";
-            return;
-        }
-        my $xpc = XML::LibXML::XPathContext->new($jhove);
-        $xpc->registerNs('jhove', "http://hul.harvard.edu/ois/xml/ns/jhove");
-        $xpc->registerNs('mix', "http://www.loc.gov/mix/v20");
-
-        my $size=$xpc->findvalue("descendant::jhove:size",$jhove);
-        if ($size > 0) {
-            $self->set_fmetadata($fmetadata,'Size',$size);
-        }
-
-        my $md5=$xpc->findvalue('descendant::jhove:checksum[@type="MD5"]',$jhove);
-        if ($md5) {
-            $self->set_fmetadata($fmetadata,'MD5',$md5);
-        }
-
-        my $mimetype=$xpc->findvalue("descendant::jhove:mimeType",$jhove);
-        if (index($mimetype,"image/")==0) {
-            my @mix=$xpc->findnodes("descendant::mix:mix",$jhove);
-            if (scalar(@mix)>0) {
-                $self->set_fmetadata($fmetadata,'Width',$xpc->findvalue("descendant::mix:imageWidth",$mix[0]));
-                $self->set_fmetadata($fmetadata,'Height',$xpc->findvalue("descendant::mix:imageHeight",$mix[0]));
-            }
-        }
-
-        # Updating Filemeta database with potentially new information
-        my $format=$xpc->findvalue("descendant::jhove:format",$jhove);
-        if ($format) {
-            $self->set_fmetadata($fmetadata,'format',$format);
-        }
-        my $version=$xpc->findvalue("descendant::jhove:version",$jhove);
-        if ($version) {
-            $self->set_fmetadata($fmetadata,'version',$version);
-        }
-        my $status=$xpc->findvalue("descendant::jhove:status",$jhove);
-        if ($status) {
-            $self->set_fmetadata($fmetadata,'status',$status);
-        }
-        my $mimetype=$xpc->findvalue("descendant::jhove:mimeType",$jhove);
-        if ($mimetype) {
-            $self->set_fmetadata($fmetadata,'mimetype',$mimetype);
-        }
-        my @errormsgs;
-        foreach my $errormsg ($xpc->findnodes('descendant::jhove:message[@severity="error"]',$jhove)) {
-            my $txtmsg=$errormsg->to_literal;
-            if (! ($txtmsg =~ /^\d+$/)) {
-                push @errormsgs,$txtmsg;
-            }
-        }
-        if (@errormsgs) {
-            $self->set_fmetadata($fmetadata,'errormsg',join(',',@errormsgs));
-        }
+    # If this is a master image, try talking to Cantaloupe to get dimensions
+    if ($fileindex->{'use'} eq 'master') {
+	my $path=uri_escape_utf8($pathname)."/info.json";
+	my $res = $self->cantaloupe->get($path,{},{deserializer => 'application/json'});
+	# TODO: the 403 is a bit odd!
+	if ($res->code != 200 && $res->code != 403) {
+	    die "Cantaloupe call to `$path` returned: ".$res->code."\n";
+	}
+	if (defined $res->data->{height}) {
+	    $filedata->{'Height'}=$res->data->{height};
+	}
+	if (defined $res->data->{width}) {
+	    $filedata->{'Width'}=$res->data->{width};
+	}
     }
-
-    foreach my $field ('Size','MD5','Width','Height') {
-        if (exists $fmetadata->{$field}) {
-            $filedata->{$field}=$fmetadata->{$field};
-        }
-    }
-
-    # TODO:  If we still don't have dimensions, talk to Image Server
-
-    # TODO: Mark files which are referenced in METS, and remove from CouchDB those which are no longer in current revision.
 
     return $filedata;
 }
