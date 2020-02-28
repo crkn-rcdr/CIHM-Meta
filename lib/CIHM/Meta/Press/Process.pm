@@ -629,6 +629,10 @@ sub process_components {
             $components->{$self->presentdoc->{$thisdoc}->{'key'}}->{'canonicalMasterHeight'}=
                 $self->presentdoc->{$thisdoc}->{'canonicalMasterHeight'};
         }
+        if (exists $self->presentdoc->{$thisdoc}->{'canonicalDownload'}) {
+            $components->{$self->presentdoc->{$thisdoc}->{'key'}}->{'canonicalDownload'}=
+                $self->presentdoc->{$thisdoc}->{'canonicalDownload'};
+        }
         if (defined $self->presentdoc->{$self->aip}->{'collection'}) {
             $self->presentdoc->{$thisdoc}->{'collection'}=
                 $self->presentdoc->{$self->aip}->{'collection'};
