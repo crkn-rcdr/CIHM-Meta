@@ -1,0 +1,308 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Config::General;
+use CIHM::Meta::REST::internalmeta;
+use CIHM::Meta::REST::collection;
+use Data::Dumper;
+use JSON;
+use DateTime;
+use List::Compare;
+
+
+
+{
+    package restclient;
+
+    use Moose;
+    with 'Role::REST::Client';
+}
+
+my $conf = "/etc/canadiana/tdr/tdr.conf";
+GetOptions (
+    'conf:s' => \$conf
+    );
+
+my %confighash = new Config::General(
+    -ConfigFile => $conf,
+    )->getall;
+
+die "missing noid= in configuration\n" if (! exists $confighash{noid});
+
+my $noidsrv= new restclient (
+    server => $confighash{noid},
+    type   => 'application/json',
+    clientattrs => {timeout => 3600}
+);
+die "Failed to create noid client\n" if (!$noidsrv);
+my $res = $noidsrv->get("/", {}, {deserializer => 'application/json'});
+if ($res->code != 200) {
+    die "noid server setup return code: " . $res->code . "\n";
+}
+# Array of already allocated collection noids
+my @colNoids;
+
+
+# Undefined if no <cap_collection> config block
+my $cap_collections;
+if (exists $confighash{cap_collections}) {
+    $cap_collections = new restclient (
+	server => $confighash{cap_collections}{server}."/".$confighash{cap_collections}{database},
+	type   => 'application/json',
+	clientattrs => {timeout => 3600},
+	);
+    $cap_collections->set_persistent_header('Accept' => 'application/json');
+} else {
+    die "Missing <cap_collections> configuration block in config\n";
+}
+
+
+# cap_collections sourced collections
+my %capcols;
+
+$res = $cap_collections->get("/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
+if ($res->code != 200) {
+    die "doctype return code: " . $res->code . "\n";
+}
+foreach my $collection (@{$res->data->{rows}}) {
+    $capcols{$collection->{id}} = {
+	# Collection display labels are only a string, so grab English...
+	label => $collection->{doc}->{label}->{en}->[0]
+    };
+}
+
+# Undefined if no <collection> config block
+my $collection;
+if (exists $confighash{collection}) {
+    $collection = new CIHM::Meta::REST::collection (
+	server => $confighash{collection}{server},
+	database => $confighash{collection}{database},
+	type   => 'application/json',
+	conf   => $conf,
+	clientattrs => {timeout => 36000},
+	);
+} else {
+    die "Missing <collection> configuration block in config\n";
+}
+
+
+
+
+# Undefined if no <internalmeta> config block
+my $internalmeta;
+if (exists $confighash{internalmeta}) {
+    $internalmeta = new CIHM::Meta::REST::internalmeta (
+	server => $confighash{internalmeta}{server},
+	database => $confighash{internalmeta}{database},
+	type   => 'application/json',
+	conf   => $conf,
+	clientattrs => {timeout => 3600},
+	);
+} else {
+    die "Missing <internalmeta> configuration block in config\n";
+}
+
+
+# Hash by slug id from 'internalmeta' series records
+my %seriesslugs;
+
+$internalmeta->type("application/json");
+my $key="\"approved\",\"aip\",\"series\"";
+$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
+if ($res->code != 200) {
+    die "doctype return code: " . $res->code . "\n";
+}
+foreach my $seriesslug (@{$res->data->{rows}}) {
+    $seriesslugs{$seriesslug->{id}}= {
+	public => 1,
+	collections => $seriesslug->{doc}->{collections}
+    };
+}
+
+
+$key="\"not%20approved\",\"aip\",\"series\"";
+$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
+if ($res->code != 200) {
+    die "doctype return code: " . $res->code . "\n";
+}
+foreach my $seriesslug (@{$res->data->{rows}}) {
+    $seriesslugs{$seriesslug->{id}}= {
+	public => 0,
+	collections => $seriesslug->{doc}->{collections}
+    };
+}
+
+
+# Building the collections
+my %collectionentries;
+my %slug2noid;
+
+## First load existing 'collection' entries
+
+$res = $collection->get("/".$collection->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
+if ($res->code != 200) {
+    if (defined $res->response->content) {
+	warn $res->response->content."\n";
+    }
+    die "collections/_all_docs return code: " . $res->code . "\n";
+}
+foreach my $collection (@{$res->data->{rows}}) {
+    %{$collectionentries{$collection->{key}}}=%{$collection->{doc}};
+    $slug2noid{$collection->{doc}->{slug}}=$collection->{key};
+}
+
+
+# Add in any missing collections from cap_collections
+foreach my $capcol (keys %capcols) {
+    findCreateCollection({
+	slug => $capcol,
+	label => $capcols{$capcol}{'label'},
+	public => 1,
+	ordered => 0	    
+			 });
+}
+# Clean up unused hash
+undef %capcols;
+
+
+# Add in any missing series
+foreach my $serieskey (keys %seriesslugs) {
+    my @noidcollections;
+
+    # Create (or just find) collection noids for each string collection
+    foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
+	push @noidcollections ,
+	    findCreateCollection({
+		slug => $colstring,
+		public => 1,
+				 });
+    }
+
+    findCreateCollection({
+	slug => $serieskey,
+	public => $seriesslugs{$serieskey}->{public},
+	collections => \@noidcollections,
+	ordered => 1
+				 });
+
+}
+# Clean up unused hash
+undef %seriesslugs;
+
+
+# Post updates so far, before working on dmdSec
+postUpdates();
+
+
+
+
+
+
+
+
+### Helper functions
+
+sub postUpdates {
+
+    # Post updates
+    my $dbupdate={ docs => [] };
+
+    foreach my $noidkey (keys %collectionentries) {
+	my $entry = $collectionentries{$noidkey};
+
+	if ($entry->{updated}) {
+	    delete $entry->{updated};
+	    $entry->{'_id'}=$noidkey;
+	    push @{$dbupdate->{docs}}, $entry;
+	}
+    }
+
+    print "Posting ".scalar(@{$dbupdate->{docs}})." updates.\n";
+
+    $collection->type("application/json");
+    $res = $collection->post("/".$collection->database."/_bulk_docs", $dbupdate, {deserializer => 'application/json'});
+    if ($res->code != 201) {
+	if (defined $res->response->content) {
+	    warn $res->response->content."\n";
+	}
+	die "dbupdate return code: " . $res->code . "\n";
+    }
+}
+
+
+sub findCreateCollection {
+    my ($args) = @_;
+
+    die "Slug mandatory for findCreateCollection()\n"
+	if ! exists $args->{slug};
+    my $slug = $args->{slug};
+    
+    if (! exists $slug2noid{$slug}) {
+	# Assign the newly minted noid
+	$slug2noid{$slug} = getCollectionNoid();
+	$collectionentries{$slug2noid{$slug}}{slug}=$slug;
+    }
+    my $noid = $slug2noid{$slug};
+
+    if ((exists $args->{label}) && (
+	    (!exists $collectionentries{$noid}{label}) ||
+	    $collectionentries{$noid}{label} ne $args->{label})) {
+	$collectionentries{$noid}{label}=$args->{label};
+	$collectionentries{$noid}{updated}=1;
+    }
+
+    if (exists $args->{collections}) {
+	if (! exists $collectionentries{$noid}{collections}) {
+	    $collectionentries{$noid}{collections}=[];
+	}
+	my $lc = List::Compare->new($args->{collections},$collectionentries{$noid}{collections});
+	if (! $lc->is_LequivalentR() ) {
+	    $collectionentries{$noid}{collections}=$args->{collections};
+	    $collectionentries{$noid}{updated}=1;
+	}
+    }
+
+    if (exists $args->{public}) {
+	if (($args->{public}) &&
+	    !exists $collectionentries{$noid}{public}) {
+	    $collectionentries{$noid}{public}=DateTime->now()->iso8601().'Z';
+	    $collectionentries{$noid}{updated}=1;
+	}
+	if (!($args->{public}) &&
+	    exists $collectionentries{$noid}{public}) {
+	    delete $collectionentries{$noid}{public};
+	    $collectionentries{$noid}{updated}=1;
+	}
+    }
+
+    if (exists $args->{ordered}) {
+	if ($args->{ordered} &&
+	    !$collectionentries{$noid}{ordered}) {
+	    $collectionentries{$noid}{ordered}=JSON::true;
+	    $collectionentries{$noid}{updated}=1;
+	}
+	if (!($args->{ordered}) && 
+		 $collectionentries{$noid}{ordered}) {
+	    $collectionentries{$noid}{ordered}=JSON::false;
+	    $collectionentries{$noid}{updated}=1;
+	}
+    }
+    
+    return $noid;
+}
+
+
+
+# Hitting the server too hard was causing 500 errors
+sub getCollectionNoid {
+    if (!@colNoids) {
+	my $res = $noidsrv->post("/mint/100/collection", {}, {deserializer => 'application/json'});
+	if ($res->code != 200) {
+	    die "Fail communicating with noid server: " . $res->code . "\n";
+	}
+	push @colNoids, @{$res->data->{ids}};
+    }
+    return pop @colNoids;
+}
