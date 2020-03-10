@@ -294,13 +294,10 @@ sub updateDMD {
 	my $object="$noid/dmd$mdtype.xml";
 	my $r = $swift->object_head($access_metadata,$object);
 	if ($r->code == 404 || ($r->etag ne $dmdDigest)) {
-		print Dumper("code", ($r->code), "etag",$r->etag, "dmdDigest", $dmdDigest)."\n";
 		print "Put $object\n";
 		$r = $swift->object_put($access_metadata,$object,$dmdRecord);
 		if ($r->code != 201) {
 			warn "Failed writing $object - returned ".$r->code."\n";
-		} else {
-			# print Dumper($r->headers);
 		}
 	} elsif ($r->code != 200) {
 		warn "Head for $object - returned ".$r->code."\n";
