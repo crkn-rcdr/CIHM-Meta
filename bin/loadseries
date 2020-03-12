@@ -143,7 +143,8 @@ if ($res->code != 200) {
 foreach my $seriesslug (@{$res->data->{rows}}) {
     $seriesslugs{$seriesslug->{id}}= {
 		public => 1,
-		collections => $seriesslug->{doc}->{collections}
+		collections => $seriesslug->{doc}->{collections},
+		label => $seriesslug->{doc}->{label}
     };
 }
 
@@ -156,7 +157,8 @@ if ($res->code != 200) {
 foreach my $seriesslug (@{$res->data->{rows}}) {
     $seriesslugs{$seriesslug->{id}}= {
 		public => 0,
-		collections => $seriesslug->{doc}->{collections}
+		collections => $seriesslug->{doc}->{collections},
+		label => $seriesslug->{doc}->{label}
     };
 }
 
@@ -209,6 +211,7 @@ foreach my $serieskey (keys %seriesslugs) {
     findCreateCollection({
 	slug => $serieskey,
 	public => $seriesslugs{$serieskey}->{public},
+	label => $seriesslugs{$serieskey}->{label},
 	collections => \@noidcollections,
 	ordered => 1
 				 });
@@ -365,8 +368,8 @@ sub findCreateCollection {
     }
     my $noid = $slug2noid{$slug};
 
-    if ((exists $args->{label}) && (
-	    (!exists $collectionentries{$noid}{label}) ||
+    if ((defined $args->{label}) && (
+	    (!defined $collectionentries{$noid}{label}) ||
 	    $collectionentries{$noid}{label} ne $args->{label})) {
 		$collectionentries{$noid}{label}=$args->{label};
 		$collectionentries{$noid}{updated}=1;
