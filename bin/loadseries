@@ -15,6 +15,7 @@ use JSON;
 use DateTime;
 use List::Compare;
 use Digest::MD5 qw(md5 md5_hex md5_base64);
+use File::chdir;
 
 
 
@@ -26,8 +27,12 @@ use Digest::MD5 qw(md5 md5_hex md5_base64);
 }
 
 my $conf = "/etc/canadiana/tdr/tdr.conf";
+my $updatedmd;
+my $validate;
 GetOptions (
-    'conf:s' => \$conf
+    'conf:s' => \$conf,
+	'updatedmd' => \$updatedmd,
+	'validate' => \$validate
     );
 
 my %confighash = new Config::General(
@@ -262,14 +267,20 @@ undef %seriesslugs;
 # Post updates so far, before working on dmdSec
 postUpdates();
 
-foreach my $noid (keys %collectionentries) {
-	# Unordered means it is not a series, and thus we don't have DMD in the repository.
-	if ($collectionentries{$noid}{ordered}) {
-		updateDMD($collectionentries{$noid});
+if ($updatedmd) {
+	foreach my $noid (keys %collectionentries) {
+		# Unordered means it is not a series, and thus we don't have DMD in the repository.
+		if ($collectionentries{$noid}{ordered}) {
+			updateDMD($collectionentries{$noid});
+		}
 	}
+	postUpdates();
 }
 
-postUpdates();
+if ($validate) {
+	validateRecords();
+}
+
 
 ### Helper functions
 
@@ -453,6 +464,13 @@ sub findCreateCollection {
 		setNoidForSlug($slug,$noid);
 	}
 
+
+	# Ensure that items is at least empty
+	if (ref $collectionentries{$noid}{items} ne ref []) {
+		$collectionentries{$noid}{items}=[];
+		$collectionentries{$noid}{updated}=1;
+	}
+
 	if (ref $collectionentries{$noid}{label} ne ref {}) {
 		$collectionentries{$noid}{label}={};
 		$collectionentries{$noid}{updated}=1;
@@ -549,5 +567,38 @@ sub setNoidForSlug {
 		$slugentries{$slug}{noid} = $noid;
 		$slugentries{$slug}{type} = 'collection';
 		$slugentries{$slug}{updated}=1;
+	}
+}
+
+sub validateRecords {
+    foreach my $noidkey (keys %collectionentries) {
+		validateRecord('collection',$collectionentries{$noidkey});
+    }
+    foreach my $slugkey (keys %slugentries) {
+		validateRecord('slug',$slugentries{$slugkey});
+	}
+}
+
+
+sub validateRecord {
+	my ($type,$record) = @_;
+
+	local $CWD = "/home/tdr/Databases";
+	my $tempname = "/tmp/loadseriesvalidate.json";
+
+	open(FH, '>', $tempname) or die $!;
+	print FH encode_json($record);
+	close(FH);
+
+	my $results;
+	open(FH,"node ./test.js -s schemas/$type.json -f $tempname |") or die $!;
+	{
+		local $/;
+		$results = <FH>;
+	}
+	close (FH);
+	chomp($results);
+	if ($results ne "You did it.") {
+		print "Validation failure for $type:\n" . Data::Dumper->Dump([$record,$results],[qw(Record Result)])."\n";
 	}
 }
