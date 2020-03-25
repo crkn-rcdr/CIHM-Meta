@@ -7,6 +7,7 @@ use Getopt::Long;
 use Config::General;
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::slug;
 use XML::LibXML;
 use CIHM::Swift::Client;
 use Data::Dumper;
@@ -113,7 +114,19 @@ if (exists $confighash{collection}) {
     die "Missing <collection> configuration block in config\n";
 }
 
-
+# Undefined if no <slug> config block
+my $slug;
+if (exists $confighash{slug}) {
+    $slug = new CIHM::Meta::REST::slug (
+		server => $confighash{slug}{server},
+		database => $confighash{slug}{database},
+		type   => 'application/json',
+		conf   => $conf,
+		clientattrs => {timeout => 36000},
+	);
+} else {
+    die "Missing <slug> configuration block in config\n";
+}
 
 
 # Undefined if no <internalmeta> config block
@@ -164,23 +177,37 @@ foreach my $seriesslug (@{$res->data->{rows}}) {
 
 
 # Building the collections
+
+## Load existing 'slug' entries
+my %slugentries;
+$res = $slug->get("/".$slug->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
+if ($res->code != 200) {
+    if (defined $res->response->content) {
+	warn $res->response->content."\n";
+    }
+    die "slug/_all_docs return code: " . $res->code . "\n";
+}
+foreach my $slugentry (@{$res->data->{rows}}) {
+    %{$slugentries{$slugentry->{key}}}=%{$slugentry->{doc}};
+}
+
+
+## Load existing 'collection' entries
 my %collectionentries;
-my %slug2noid;
-
-## First load existing 'collection' entries
-
 $res = $collection->get("/".$collection->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
 if ($res->code != 200) {
     if (defined $res->response->content) {
 	warn $res->response->content."\n";
     }
-    die "collections/_all_docs return code: " . $res->code . "\n";
+    die "collection/_all_docs return code: " . $res->code . "\n";
 }
 foreach my $collection (@{$res->data->{rows}}) {
-    %{$collectionentries{$collection->{key}}}=%{$collection->{doc}};
-    $slug2noid{$collection->{doc}->{slug}}=$collection->{key};
+	my $noid = $collection->{key};
+    %{$collectionentries{$noid}}=%{$collection->{doc}};
+	if (exists $collectionentries{$noid}{slug}) {
+		setNoidForSlug($collectionentries{$noid}{slug},$noid);
+	}
 }
-
 
 # Add in any missing collections from cap_collections
 foreach my $capcol (keys %capcols) {
@@ -238,9 +265,20 @@ postUpdates();
 sub updateDMD {
 	my ($collection) = @_;
 	my $noid=$collection->{'_id'};
-	my $slug=$collection->{'slug'};
 
-	my $xml = XML::LibXML->new->parse_string(get_metadata($collection->{slug}));
+	my $slug=getSlugFromNoid($noid);
+	if(!$slug) {
+		print "Couldn't find slug for $noid in updateDMD\n";
+		# Transition/testing -- delete outdated/invalid entry
+		$collection->{'_deleted'}=JSON::true;
+		$collection->{updated}=1;
+		return;
+	}
+	if ($slug ne $collection->{'slug'}) {
+		die Dumper ($slug,$collection);
+	}
+
+	my $xml = XML::LibXML->new->parse_string(get_metadata($slug));
 	my $xpc=XML::LibXML::XPathContext->new;
 
 	# Find the "physical" structMap (the only one that is in our current repository)
@@ -342,15 +380,38 @@ sub postUpdates {
 		}
     }
 
-    print "Posting ".scalar(@{$dbupdate->{docs}})." updates.\n";
+    print "Posting ".scalar(@{$dbupdate->{docs}})." collection updates.\n";
 
     $collection->type("application/json");
-    $res = $collection->post("/".$collection->database."/_bulk_docs", $dbupdate, {deserializer => 'application/json'});
+    my $res = $collection->post("/".$collection->database."/_bulk_docs", $dbupdate, {deserializer => 'application/json'});
     if ($res->code != 201) {
 		if (defined $res->response->content) {
 	    	warn $res->response->content."\n";
 		}
-		die "dbupdate return code: " . $res->code . "\n";
+		die "dbupdate of 'slug' return code: " . $res->code . "\n";
+    }
+
+    $dbupdate={ docs => [] };
+
+    foreach my $slugkey (keys %slugentries) {
+		my $entry = $slugentries{$slugkey};
+
+		if ($entry->{updated}) {
+			delete $entry->{updated};
+			$entry->{'_id'}=$slugkey;
+			push @{$dbupdate->{docs}}, $entry;
+		}
+    }
+
+    print "Posting ".scalar(@{$dbupdate->{docs}})." slug updates.\n";
+
+    $slug->type("application/json");
+    $res = $slug->post("/".$slug->database."/_bulk_docs", $dbupdate, {deserializer => 'application/json'});
+    if ($res->code != 201) {
+		if (defined $res->response->content) {
+			warn $res->response->content."\n";
+		}
+		die "dbupdate of 'slug' return code: " . $res->code . "\n";
     }
 }
 
@@ -361,12 +422,13 @@ sub findCreateCollection {
     die "Slug mandatory for findCreateCollection()\n"
 		if ! exists $args->{slug};
     my $slug = $args->{slug};
-    if (! exists $slug2noid{$slug}) {
+
+	my $noid = getNoidFromSlug($slug);
+    if (!$noid) {
 		# Assign the newly minted noid
-		$slug2noid{$slug} = getCollectionNoid();
-		$collectionentries{$slug2noid{$slug}}{slug}=$slug;
-    }
-    my $noid = $slug2noid{$slug};
+		$noid = getCollectionNoid();
+		setNoidForSlug($slug,$noid);
+	}
 
     if ((defined $args->{label}) && (
 	    (!defined $collectionentries{$noid}{label}) ||
@@ -427,4 +489,38 @@ sub getCollectionNoid {
 		push @colNoids, @{$res->data->{ids}};
     }
     return pop @colNoids;
+}
+
+sub getNoidFromSlug {
+	my ($slug) = @_;
+
+	return $slugentries{$slug}{noid};
+}
+
+sub getSlugFromNoid {
+	my ($noid) = @_;
+
+	foreach my $slug (keys %slugentries) {
+		return $slug if ($slugentries{$slug}{noid} eq $noid);
+	}
+}
+
+sub setNoidForSlug {
+	my ($slug,$noid) = @_;
+
+	# For the one-time copy, there shouldn't be duplicates!
+	if (exists $slugentries{$slug} &&
+	    $slugentries{$slug}{noid} ne $noid )
+	{
+		print "Noid already set noid=".$slugentries{$slug}{noid}." for slug=$slug noid=$noid\n"
+	}
+
+
+	if ((! exists $slugentries{$slug}) ||
+	    $slugentries{$slug}{noid} ne $noid )
+	{
+		$slugentries{$slug}{noid} = $noid;
+		$slugentries{$slug}{type} = 'collection';
+		$slugentries{$slug}{updated}=1;
+	}
 }
