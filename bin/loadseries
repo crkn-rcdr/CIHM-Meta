@@ -95,8 +95,8 @@ if ($res->code != 200) {
 }
 foreach my $collection (@{$res->data->{rows}}) {
     $capcols{$collection->{id}} = {
-		# Collection display labels are only a string, so grab English...
-		label => $collection->{doc}->{label}->{en}->[0]
+		# cap_collection labels are already IIIF Text Values
+		label => $collection->{doc}->{label}
     };
 }
 
@@ -154,10 +154,14 @@ if ($res->code != 200) {
     die "doctype return code: " . $res->code . "\n";
 }
 foreach my $seriesslug (@{$res->data->{rows}}) {
+	# Convert string label to IIIF Text Value
+	my %label = (
+		"none" => [$seriesslug->{doc}->{label}]
+	);
     $seriesslugs{$seriesslug->{id}}= {
 		public => 1,
 		collections => $seriesslug->{doc}->{collections},
-		label => $seriesslug->{doc}->{label}
+		label => \%label
     };
 }
 
@@ -168,10 +172,14 @@ if ($res->code != 200) {
     die "doctype return code: " . $res->code . "\n";
 }
 foreach my $seriesslug (@{$res->data->{rows}}) {
+	# Convert string label to IIIF Text Value
+	my %label = (
+		"none" => [$seriesslug->{doc}->{label}]
+	);
     $seriesslugs{$seriesslug->{id}}= {
 		public => 0,
 		collections => $seriesslug->{doc}->{collections},
-		label => $seriesslug->{doc}->{label}
+		label => \%label
     };
 }
 
@@ -204,8 +212,11 @@ if ($res->code != 200) {
 foreach my $collection (@{$res->data->{rows}}) {
 	my $noid = $collection->{key};
     %{$collectionentries{$noid}}=%{$collection->{doc}};
+    # Transition/testing
 	if (exists $collectionentries{$noid}{slug}) {
 		setNoidForSlug($collectionentries{$noid}{slug},$noid);
+		delete $collectionentries{$noid}{slug};
+		$collectionentries{$noid}{updated}=1;
 	}
 }
 
@@ -225,7 +236,7 @@ undef %capcols;
 foreach my $serieskey (keys %seriesslugs) {
     my @noidcollections;
 
-    # Create (or just find) collection noids for each string collection
+    # Create (or just find) collection noids for each tag collection
     foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
 		push @noidcollections ,
 	    	findCreateCollection({
@@ -274,9 +285,6 @@ sub updateDMD {
 		$collection->{updated}=1;
 		return;
 	}
-	if ($slug ne $collection->{'slug'}) {
-		die Dumper ($slug,$collection);
-	}
 
 	my $xml = XML::LibXML->new->parse_string(get_metadata($slug));
 	my $xpc=XML::LibXML::XPathContext->new;
@@ -323,7 +331,7 @@ sub updateDMD {
 	my $dmdRecord=utf8::is_utf8($xmlrecord) ? Encode::encode_utf8($xmlrecord) : $xmlrecord;
 	my $dmdDigest=md5_hex($dmdRecord);
 
-	print "noid=$noid slug=$slug DMDID=$dmdid mdtype=$mdtype dmdRecord length=".length($dmdRecord)."\n";
+	#print "noid=$noid slug=$slug DMDID=$dmdid mdtype=$mdtype dmdRecord length=".length($dmdRecord)."\n";
 
 	my $mdtypel = lc($mdtype);
 	if ((!defined $collection->{dmdType} ) ||
@@ -373,6 +381,11 @@ sub postUpdates {
     foreach my $noidkey (keys %collectionentries) {
 		my $entry = $collectionentries{$noidkey};
 
+		if (! (keys %{$entry->{label}})) {
+			my $slug = getSlugFromNoid($noidkey);
+			print "No label for $noidkey slug=$slug\n";
+		}
+
 		if ($entry->{updated}) {
 	    	delete $entry->{updated};
 	    	$entry->{'_id'}=$noidkey;
@@ -416,6 +429,16 @@ sub postUpdates {
 }
 
 
+sub isLabelEqual {
+	my ($oldlabel,$newlabel) = @_;
+
+	# First compare keys
+	return 0 if (join("\0",sort(keys %{$oldlabel})) ne join("\0",sort(keys %{$newlabel})));
+
+	# For now, if keys are the same we'll consider equal as we don't expect to need to handle the strings changing.
+	return 1;
+}
+
 sub findCreateCollection {
     my ($args) = @_;
 
@@ -430,12 +453,16 @@ sub findCreateCollection {
 		setNoidForSlug($slug,$noid);
 	}
 
-    if ((defined $args->{label}) && (
-	    (!defined $collectionentries{$noid}{label}) ||
-	    $collectionentries{$noid}{label} ne $args->{label})) {
+	if (ref $collectionentries{$noid}{label} ne ref {}) {
+		$collectionentries{$noid}{label}={};
+		$collectionentries{$noid}{updated}=1;
+	}
+    if (defined $args->{label} &&
+			(! isLabelEqual($collectionentries{$noid}{label},$args->{label})))
+	{
 		$collectionentries{$noid}{label}=$args->{label};
 		$collectionentries{$noid}{updated}=1;
-    }
+	}
 
     if (exists $args->{collections}) {
 		if (! exists $collectionentries{$noid}{collections}) {
