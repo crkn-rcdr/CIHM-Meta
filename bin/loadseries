@@ -472,6 +472,11 @@ sub findCreateCollection {
 		setNoidForSlug($slug,$noid);
 	}
 
+	# Clear old entry if exists
+	if (exists $collectionentries{$noid}{collections}) {
+		delete $collectionentries{$noid}{collections};
+		$collectionentries{$noid}{updated}=1;
+	}
 
 	# Ensure that items is at least empty
 	if (ref $collectionentries{$noid}{items} ne ref []) {
@@ -479,10 +484,11 @@ sub findCreateCollection {
 		$collectionentries{$noid}{updated}=1;
 	}
     if (exists $args->{items}) {
-		# TODO:  This should append missing rather than compare....
+		# Append any missing items
 		my $lc = List::Compare->new($args->{items},$collectionentries{$noid}{items});
-		if (! $lc->is_LequivalentR() ) {
-			$collectionentries{$noid}{items}=$args->{items};
+		my @toadd = $lc->get_Lonly;
+		if (@toadd ) {
+			push @{$collectionentries{$noid}{items}} , @toadd;
 			$collectionentries{$noid}{updated}=1;
 		}
     }
