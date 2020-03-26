@@ -29,10 +29,12 @@ use File::chdir;
 my $conf = "/etc/canadiana/tdr/tdr.conf";
 my $updatedmd;
 my $validate;
+my $checktags;
 GetOptions (
     'conf:s' => \$conf,
 	'updatedmd' => \$updatedmd,
-	'validate' => \$validate
+	'validate' => \$validate,
+	'checktags' => \$checktags
     );
 
 my %confighash = new Config::General(
@@ -241,24 +243,22 @@ undef %capcols;
 foreach my $serieskey (keys %seriesslugs) {
     my @noidcollections;
 
-    # Create (or just find) collection noids for each tag collection
-    foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
+	# Find list of tag collections series is part of
+	foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
 		push @noidcollections ,
 	    	findCreateCollection({
 				slug => $colstring,
-				public => 1,
-				ordered => 0
-				 });
+				nocreate => 1,
+			});
     }
 
     findCreateCollection({
-	slug => $serieskey,
-	public => $seriesslugs{$serieskey}->{public},
-	label => $seriesslugs{$serieskey}->{label},
-	collections => \@noidcollections,
-	ordered => 1
-				 });
-
+		slug => $serieskey,
+		public => $seriesslugs{$serieskey}->{public},
+		label => $seriesslugs{$serieskey}->{label},
+		items => \@noidcollections,
+		ordered => 1
+	});
 }
 # Clean up unused hash
 undef %seriesslugs;
@@ -266,6 +266,10 @@ undef %seriesslugs;
 
 # Post updates so far, before working on dmdSec
 postUpdates();
+
+if ($checktags) {
+	checkTags();
+}
 
 if ($updatedmd) {
 	foreach my $noid (keys %collectionentries) {
@@ -459,6 +463,10 @@ sub findCreateCollection {
 
 	my $noid = getNoidFromSlug($slug);
     if (!$noid) {
+		# If we've been asked not to create, then just exit without modification
+		if ($args->{nocreate}) {
+			return;
+		}
 		# Assign the newly minted noid
 		$noid = getCollectionNoid();
 		setNoidForSlug($slug,$noid);
@@ -470,6 +478,14 @@ sub findCreateCollection {
 		$collectionentries{$noid}{items}=[];
 		$collectionentries{$noid}{updated}=1;
 	}
+    if (exists $args->{items}) {
+		# TODO:  This should append missing rather than compare....
+		my $lc = List::Compare->new($args->{items},$collectionentries{$noid}{items});
+		if (! $lc->is_LequivalentR() ) {
+			$collectionentries{$noid}{items}=$args->{items};
+			$collectionentries{$noid}{updated}=1;
+		}
+    }
 
 	if (ref $collectionentries{$noid}{label} ne ref {}) {
 		$collectionentries{$noid}{label}={};
@@ -482,16 +498,6 @@ sub findCreateCollection {
 		$collectionentries{$noid}{updated}=1;
 	}
 
-    if (exists $args->{collections}) {
-		if (! exists $collectionentries{$noid}{collections}) {
-	    	$collectionentries{$noid}{collections}=[];
-		}
-		my $lc = List::Compare->new($args->{collections},$collectionentries{$noid}{collections});
-		if (! $lc->is_LequivalentR() ) {
-	    	$collectionentries{$noid}{collections}=$args->{collections};
-	    	$collectionentries{$noid}{updated}=1;
-		}
-    }
 
     if (exists $args->{public}) {
 		if (($args->{public}) &&
@@ -539,7 +545,7 @@ sub getCollectionNoid {
 sub getNoidFromSlug {
 	my ($slug) = @_;
 
-	return $slugentries{$slug}{noid};
+	return $slugentries{$slug}{noid} if exists $slugentries{$slug};
 }
 
 sub getSlugFromNoid {
@@ -599,6 +605,44 @@ sub validateRecord {
 	close (FH);
 	chomp($results);
 	if ($results ne "You did it.") {
-		print "Validation failure for $type:\n" . Data::Dumper->Dump([$record,$results],[qw(Record Result)])."\n";
+		my $slug = getSlugFromNoid($record->{'_id'});
+		print "Validation failure for type=$type slug=$slug :\n" . Data::Dumper->Dump([$record,$results],[qw(Record Result)])."\n";
+	}
+}
+
+sub checkTags {
+
+	# Hash of tags (keys are tags).
+	my %tags;
+
+	$internalmeta->type("application/json");
+	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/colpages?reduce=true&group_level=1", {}, {deserializer => 'application/json'});
+	if ($res->code != 200) {
+		die "colpages return code: " . $res->code . "\n";
+		}
+	foreach my $thistag (@{$res->data->{rows}}) {
+		$tags{$thistag->{key}}=1;
+	};
+	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/coltitles?reduce=true&group_level=1", {}, {deserializer => 'application/json'});
+	if ($res->code != 200) {
+		die "coltitles return code: " . $res->code . "\n";
+	}
+	foreach my $thistag (@{$res->data->{rows}}) {
+		$tags{$thistag->{key}}=1;
+	};
+
+	delete $tags{'[none]'};
+
+	my @missing;
+	foreach my $thistag (keys %tags) {
+		if (! getNoidFromSlug($thistag)) {
+			push @missing,$thistag;
+		};
+	}
+
+	if (@missing) {
+		print "The following tags are missing from collections: ". join(' , ',@missing)."\n";
+	} else {
+		print "No missing tag collection\n";
 	}
 }
