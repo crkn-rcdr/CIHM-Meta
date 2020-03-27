@@ -27,12 +27,17 @@ use File::chdir;
 }
 
 my $conf = "/etc/canadiana/tdr/tdr.conf";
-my $updatedmd;
+my $nocapcol;
+my $noseries;
+my $noupdatedmd;
 my $validate;
 my $checktags;
+
 GetOptions (
     'conf:s' => \$conf,
-	'updatedmd' => \$updatedmd,
+	'nocapcol' => \$nocapcol,
+	'noseries' => \$noseries,
+	'noupdatedmd' => \$noupdatedmd,
 	'validate' => \$validate,
 	'checktags' => \$checktags
     );
@@ -96,15 +101,17 @@ if (exists $confighash{cap_collections}) {
 # cap_collections sourced collections
 my %capcols;
 
-$res = $cap_collections->get("/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
-if ($res->code != 200) {
-    die "doctype return code: " . $res->code . "\n";
-}
-foreach my $collection (@{$res->data->{rows}}) {
-    $capcols{$collection->{id}} = {
-		# cap_collection labels are already IIIF Text Values
-		label => $collection->{doc}->{label}
-    };
+if (! $nocapcol) {
+	$res = $cap_collections->get("/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
+	if ($res->code != 200) {
+		die "doctype return code: " . $res->code . "\n";
+	}
+	foreach my $collection (@{$res->data->{rows}}) {
+		$capcols{$collection->{id}} = {
+			# cap_collection labels are already IIIF Text Values
+			label => $collection->{doc}->{label}
+		}
+	}
 }
 
 # Undefined if no <collection> config block
@@ -154,42 +161,45 @@ if (exists $confighash{internalmeta}) {
 # Hash by slug id from 'internalmeta' series records
 my %seriesslugs;
 
-$internalmeta->type("application/json");
-my $key="\"approved\",\"aip\",\"series\"";
-$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
-if ($res->code != 200) {
-    die "doctype return code: " . $res->code . "\n";
-}
-foreach my $seriesslug (@{$res->data->{rows}}) {
-	# Convert string label to IIIF Text Value
-	my %label = (
-		"none" => [$seriesslug->{doc}->{label}]
-	);
-    $seriesslugs{$seriesslug->{id}}= {
-		public => 1,
-		collections => $seriesslug->{doc}->{collections},
-		label => \%label
-    };
-}
+if (! $noseries) {
+	$internalmeta->type("application/json");
+	my $key="\"approved\",\"aip\",\"series\"";
+	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
+	if ($res->code != 200) {
+		die "doctype return code: " . $res->code . "\n";
+	}
+	foreach my $seriesslug (@{$res->data->{rows}}) {
+		# Convert string label to IIIF Text Value
+		my %label = (
+			"none" => [$seriesslug->{doc}->{label}]
+		);
+		$seriesslugs{$seriesslug->{id}}= {
+			public => 1,
+			collections => $seriesslug->{doc}->{collections},
+			label => \%label
+		}
+	}
 
 
-$key="\"not%20approved\",\"aip\",\"series\"";
-$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
-if ($res->code != 200) {
-    die "doctype return code: " . $res->code . "\n";
+	$key="\"not%20approved\",\"aip\",\"series\"";
+	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
+	if ($res->code != 200) {
+		die "doctype return code: " . $res->code . "\n";
+	}
+	foreach my $seriesslug (@{$res->data->{rows}}) {
+		# Convert string label to IIIF Text Value
+		my %label = (
+			"none" => [$seriesslug->{doc}->{label}]
+		);
+		$seriesslugs{$seriesslug->{id}}= {
+			public => 0,
+			collections => $seriesslug->{doc}->{collections},
+			label => \%label
+		}
+	}
+} else {
+	print "Not loading series from internalmeta\n";
 }
-foreach my $seriesslug (@{$res->data->{rows}}) {
-	# Convert string label to IIIF Text Value
-	my %label = (
-		"none" => [$seriesslug->{doc}->{label}]
-	);
-    $seriesslugs{$seriesslug->{id}}= {
-		public => 0,
-		collections => $seriesslug->{doc}->{collections},
-		label => \%label
-    };
-}
-
 
 # Building the collections
 
@@ -271,7 +281,7 @@ if ($checktags) {
 	checkTags();
 }
 
-if ($updatedmd) {
+if (! $noupdatedmd) {
 	foreach my $noid (keys %collectionentries) {
 		# Unordered means it is not a series, and thus we don't have DMD in the repository.
 		if ($collectionentries{$noid}{ordered}) {
@@ -279,6 +289,8 @@ if ($updatedmd) {
 		}
 	}
 	postUpdates();
+} else {
+	print "Not updating DMD records\n";
 }
 
 if ($validate) {
@@ -583,6 +595,7 @@ sub setNoidForSlug {
 }
 
 sub validateRecords {
+	print "Validating records...\n";
     foreach my $noidkey (keys %collectionentries) {
 		validateRecord('collection',$collectionentries{$noidkey});
     }
@@ -617,6 +630,8 @@ sub validateRecord {
 }
 
 sub checkTags {
+
+	print "Checking tags...\n";
 
 	# Hash of tags (keys are tags).
 	my %tags;
