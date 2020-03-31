@@ -32,6 +32,7 @@ my $noseries;
 my $noupdatedmd;
 my $validate;
 my $checktags;
+my $clearitems;
 
 GetOptions (
     'conf:s' => \$conf,
@@ -39,7 +40,8 @@ GetOptions (
 	'noseries' => \$noseries,
 	'noupdatedmd' => \$noupdatedmd,
 	'validate' => \$validate,
-	'checktags' => \$checktags
+	'checktags' => \$checktags,
+	'clearitems' => \$clearitems,
     );
 
 my %confighash = new Config::General(
@@ -249,26 +251,39 @@ foreach my $capcol (keys %capcols) {
 # Clean up unused hash
 undef %capcols;
 
-# Add in any missing series
-foreach my $serieskey (keys %seriesslugs) {
-    my @noidcollections;
+# Clear the items field if asked
+if ($clearitems) {
+	print "Clearing items field in series\n";
+	foreach my $noid (keys %collectionentries) {
+		# Ensure that items is empty, whether it doesn't exist or had entries
+		if ((ref $collectionentries{$noid}{items} ne ref []) ||
+			scalar($collectionentries{$noid}{items})) {
+			$collectionentries{$noid}{items}=[];
+			$collectionentries{$noid}{updated}=1;
+		}
+	}
+}
 
-	# Find list of tag collections series is part of
-	foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
-		push @noidcollections ,
-	    	findCreateCollection({
+if (! $noseries) {
+	print "Add any missing series collections\n";
+	foreach my $serieskey (keys %seriesslugs) {
+
+		# Find list of tag collections series is part of
+		foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
+			findCreateCollection({
 				slug => $colstring,
 				nocreate => 1,
+				items => [ $serieskey ]
 			});
-    }
+		}
 
-    findCreateCollection({
-		slug => $serieskey,
-		public => $seriesslugs{$serieskey}->{public},
-		label => $seriesslugs{$serieskey}->{label},
-		items => \@noidcollections,
-		ordered => 1
-	});
+		findCreateCollection({
+			slug => $serieskey,
+			public => $seriesslugs{$serieskey}->{public},
+			label => $seriesslugs{$serieskey}->{label},
+			ordered => 1
+		});
+	}
 }
 # Clean up unused hash
 undef %seriesslugs;
@@ -282,6 +297,7 @@ if ($checktags) {
 }
 
 if (! $noupdatedmd) {
+	print "Updating DMD records\n";
 	foreach my $noid (keys %collectionentries) {
 		# Unordered means it is not a series, and thus we don't have DMD in the repository.
 		if ($collectionentries{$noid}{ordered}) {
@@ -289,8 +305,6 @@ if (! $noupdatedmd) {
 		}
 	}
 	postUpdates();
-} else {
-	print "Not updating DMD records\n";
 }
 
 if ($validate) {
