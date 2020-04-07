@@ -111,7 +111,9 @@ if (! $nocapcol) {
 	foreach my $collection (@{$res->data->{rows}}) {
 		$capcols{$collection->{id}} = {
 			# cap_collection labels are already IIIF Text Values
-			label => $collection->{doc}->{label}
+			label => $collection->{doc}->{label},
+			summary => $collection->{doc}->{summary},
+			subcollections => $collection->{doc}->{subcollections}
 		}
 	}
 }
@@ -244,10 +246,63 @@ foreach my $capcol (keys %capcols) {
     findCreateCollection({
 		slug => $capcol,
 		label => $capcols{$capcol}{'label'},
+		summary => $capcols{$capcol}{'summary'},
 		public => 1,
 		ordered => 0	    
 	});
 }
+
+# Parentcollection stays in slugland
+my %parentcollection;
+foreach my $capcol (keys %capcols) {
+	if (defined $capcols{$capcol}{'subcollections'}) {
+		if (ref($capcols{$capcol}{'subcollections'}) eq ref []) {
+			my @items;
+
+			foreach my $subcol (@{$capcols{$capcol}{'subcollections'}}) {
+				push @items, $subcol;
+				if (!exists $parentcollection{$subcol}) {
+					$parentcollection{$subcol}=[];
+				}
+				push @{$parentcollection{$subcol}}, $capcol;
+			}
+
+			my @itemsnoid;
+			foreach my $item (@items) {
+				push @itemsnoid, findCreateCollection({ slug => $item, nocreate => 1 });
+			}
+			# Set the subcollections as items
+			findCreateCollection({
+				slug => $capcol,
+				items => \@itemsnoid,
+				nocreate => 1
+			});
+		} else {
+			print "Subcollections field of $capcol not array!!\n" . Dumper ($capcol, $capcols{$capcol});
+		}
+	}
+}
+
+# Include the parents of parents
+my $changenothing;
+until ($changenothing) {
+	$changenothing=1;
+	foreach my $subcol (keys %parentcollection) {
+		foreach my $parent (@{$parentcollection{$subcol}}) {
+			if (exists $parentcollection{$parent}) {
+				my $lc = List::Compare->new($parentcollection{$subcol},$parentcollection{$parent});
+				my @toadd = $lc->get_Ronly;
+				if (@toadd) {
+					push @{$parentcollection{$subcol}}, @toadd;
+					$changenothing=0;
+				}
+			}
+		}
+	}
+}
+
+print "Parent Collections:\n" . Dumper(\%parentcollection);
+
 # Clean up unused hash
 undef %capcols;
 
@@ -268,21 +323,37 @@ if (! $noseries) {
 	print "Add any missing series collections\n";
 	foreach my $serieskey (keys %seriesslugs) {
 
-		# Find list of tag collections series is part of
-		foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
-			findCreateCollection({
-				slug => $colstring,
-				nocreate => 1,
-				items => [ $serieskey ]
-			});
-		}
-
-		findCreateCollection({
+		my $seriesnoid = findCreateCollection({
 			slug => $serieskey,
 			public => $seriesslugs{$serieskey}->{public},
 			label => $seriesslugs{$serieskey}->{label},
 			ordered => 1
 		});
+
+		# Remove unwanted parent slugs
+        my @subtract;
+		foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
+            if (exists $parentcollection{$colstring}) {
+                my $lc = List::Compare->new($parentcollection{$colstring},$seriesslugs{$serieskey}{collections});
+                push @subtract, $lc->get_intersection;
+            }
+        }
+        if (@subtract) {
+            print "Subtract from $serieskey :\n". Dumper ($seriesslugs{$serieskey}{collections},\@subtract). "\n";
+            my $lc = List::Compare->new($seriesslugs{$serieskey}{collections},\@subtract);
+            @{$seriesslugs{$serieskey}{collections}} = $lc->get_Lonly;
+            print "Done: \n". Dumper ($seriesslugs{$serieskey}{collections}). "\n";
+        }
+
+		# Find list of tag collections series is part of
+		foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
+			findCreateCollection({
+				slug => $colstring,
+				nocreate => 1,
+				items => [ $seriesnoid ]
+			});
+		}
+
 	}
 }
 # Clean up unused hash
