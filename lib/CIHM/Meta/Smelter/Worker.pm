@@ -8,6 +8,8 @@ use JSON;
 use Config::General;
 use Log::Log4perl;
 
+use CIHM::Swift::Client;
+use CIHM::Meta::REST::cantaloupe;
 use CIHM::Meta::REST::dipstaging;
 use CIHM::Meta::Smelter::Process;
 
@@ -28,6 +30,20 @@ sub initworker {
         -ConfigFile => $configpath,
     )->getall;
 
+    # Undefined if no <cantaloupe> config block
+    if (exists $confighash{cantaloupe}) {
+        $self->{cantaloupe} = new CIHM::Meta::REST::cantaloupe (
+            url => $confighash{cantaloupe}{url},
+            key => $confighash{cantaloupe}{key},
+            password => $confighash{cantaloupe}{password},
+	    jwt_payload => '{"uids":[".*"]}',
+            type   => 'application/json',
+            conf   => $configpath,
+            clientattrs => {timeout => 3600},
+            );
+    } else {
+        croak "Missing <cantaloupe> configuration block in config\n";
+    }
 
     # Undefined if no <dipstaging> config block
     if (exists $confighash{dipstaging}) {
@@ -42,6 +58,25 @@ sub initworker {
         croak "Missing <dipstaging> configuration block in config\n";
     }
 
+    # Undefined if no <swift> config block
+    if(exists $confighash{swift}) {
+        my %swiftopt = (
+            furl_options => { timeout => 120 }
+            );
+        foreach ("server","user","password","account", "furl_options") {
+            if (exists  $confighash{swift}{$_}) {
+                $swiftopt{$_}=$confighash{swift}{$_};
+            }
+        }
+        $self->{swift}=CIHM::Swift::Client->new(%swiftopt);
+        $self->{preservation_files}=$confighash{swift}{container};
+        $self->{access_metadata}=$confighash{swift}{access_metadata};
+        $self->{access_files}=$confighash{swift}{access_files};
+    } else {
+        croak "No <swift> configuration block in ".$self->configpath."\n";
+    }
+
+
 }
 
 
@@ -53,6 +88,14 @@ sub log {
 sub dipstaging {
     my $self = shift;
     return $self->{dipstaging};
+}
+sub cantaloupe {
+    my $self = shift;
+    return $self->{cantaloupe};
+}
+sub swift {
+    my $self = shift;
+    return $self->{swift};
 }
 
 sub warnings {
@@ -102,6 +145,11 @@ sub smelt {
             configpath => $configpath,
             log => $self->log,
             dipstaging => $self->dipstaging,
+            cantaloupe => $self->cantaloupe,
+            swift => $self->swift,
+            preservation_files => $self->{preservation_files},
+            access_metadata => $self->{access_metadata},
+            access_files => $self->{access_files}
         })->process;
     } catch {
         $status = 0;
