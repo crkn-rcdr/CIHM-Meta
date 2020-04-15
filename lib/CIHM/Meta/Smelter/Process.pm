@@ -113,6 +113,8 @@ sub canvases {
 sub process {
     my ($self) = @_;
 
+    # TODO: Confirm slug isn't used.
+
     $self->parse_mets();
     my $pagecount = (scalar @{$self->divs})-1;
     my $borndigital=$self->borndigital();
@@ -123,21 +125,48 @@ sub process {
     } else {
         my @canvases;
         my $pagelabels=$self->getpagelabels();
-        for my $index (0..(scalar @{$pagelabels})-1) {
+        if (scalar @{$pagelabels} != $pagecount) {
+            die "Pagecount=$pagecount , count of labels=".scalar @{$pagelabels}."\n";
+        }
+        for my $index (0..$pagecount-1) {
+            my $div = $self->divs->[$index+1];
+            $canvases[$index]->{'source'}='cihm';
             $canvases[$index]->{label}->{none}=$pagelabels->[$index];
-            $canvases[$index]->{id}="Noid for $index";
+            $canvases[$index]->{'_id'}="Noid for $index";
+            my $master=$div->{'master.flocat'};
+            die "Missing Master for index=$index\n" if (! $master);
+            my $url=$self->aip."/".$master;
+            $canvases[$index]->{'master'}={
+                'url' => $url,
+                'mime' => $div->{'master.mimetype'}
+            };
+            my $path=uri_escape_utf8($url)."/info.json";
+            my $res=$self->cantaloupe->get($path,{},{deserializer => 'application/json'});
+            # TODO: the 403 is a bit odd!
+	        if ($res->code != 200 && $res->code != 403) {
+	            die "Cantaloupe call to `$path` returned: ".$res->code."\n";
+	        }
+	        if (defined $res->data->{height}) {
+	            $canvases[$index]->{'master'}->{'height'}=$res->data->{height};
+            }
+            if (defined $res->data->{width}) {
+	            $canvases[$index]->{'master'}->{'width'}=$res->data->{width};
+	        }
+            if (defined $div->{'distribution.flocat'}) {
+	            $canvases[$index]->{'ocrPdf'}= {
+                    'url' => $self->aip."/".$div->{'distribution.flocat'}
+                }
+            }
         }
         $self->manifest->{'canvases'}=\@canvases;
     }
 
     print Dumper($self->manifest,$pagecount, $self->divs);
 
-    #die "This is a failure\n";
-    #warn "This is a warning\n";
+    # TODO: Set Slug for manifest noid.
 }
 
 
-# Called also from CIHM::METS::parse
 sub get_metadata {
     my ($self,$file) = @_;
 
