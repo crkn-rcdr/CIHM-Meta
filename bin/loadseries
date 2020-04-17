@@ -301,7 +301,7 @@ until ($changenothing) {
 	}
 }
 
-print "Parent Collections:\n" . Dumper(\%parentcollection);
+# print "Parent Collections:\n" . Dumper(\%parentcollection);
 
 # Clean up unused hash
 undef %capcols;
@@ -339,10 +339,8 @@ if (! $noseries) {
             }
         }
         if (@subtract) {
-            print "Subtract from $serieskey :\n". Dumper ($seriesslugs{$serieskey}{collections},\@subtract). "\n";
             my $lc = List::Compare->new($seriesslugs{$serieskey}{collections},\@subtract);
             @{$seriesslugs{$serieskey}{collections}} = $lc->get_Lonly;
-            print "Done: \n". Dumper ($seriesslugs{$serieskey}{collections}). "\n";
         }
 
 		# Find list of tag collections series is part of
