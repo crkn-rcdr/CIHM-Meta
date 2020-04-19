@@ -10,10 +10,20 @@ use Log::Log4perl;
 
 use CIHM::Swift::Client;
 use CIHM::Meta::REST::cantaloupe;
+use CIHM::Meta::REST::canvas;
 use CIHM::Meta::REST::dipstaging;
+use CIHM::Meta::REST::manifest;
+use CIHM::Meta::REST::slug;
 use CIHM::Meta::Smelter::Process;
 
 our $self;
+
+{
+    package restclient;
+
+    use Moose;
+    with 'Role::REST::Client';
+}
 
 sub initworker {
     my $configpath = shift;
@@ -36,7 +46,7 @@ sub initworker {
             url => $confighash{cantaloupe}{url},
             key => $confighash{cantaloupe}{key},
             password => $confighash{cantaloupe}{password},
-	    jwt_payload => '{"uids":[".*"]}',
+	        jwt_payload => '{"uids":[".*"]}',
             type   => 'application/json',
             conf   => $configpath,
             clientattrs => {timeout => 3600},
@@ -45,17 +55,52 @@ sub initworker {
         croak "Missing <cantaloupe> configuration block in config\n";
     }
 
+    # Undefined if no <canvas> config block
+    if (exists $confighash{canvas}) {
+        $self->{canvasdb} = new CIHM::Meta::REST::canvas (
+            server => $confighash{canvas}{server},
+            database => $confighash{canvas}{database},
+            type   => 'application/json',
+            clientattrs => {timeout => 3600},
+            );
+    } else {
+        croak "Missing <canvas> configuration block in config\n";
+    }
+
     # Undefined if no <dipstaging> config block
     if (exists $confighash{dipstaging}) {
-        $self->{dipstaging} = new CIHM::Meta::REST::dipstaging (
+        $self->{dipstagingdb} = new CIHM::Meta::REST::dipstaging (
             server => $confighash{dipstaging}{server},
             database => $confighash{dipstaging}{database},
             type   => 'application/json',
-            conf   => $configpath,
             clientattrs => {timeout => 3600},
             );
     } else {
         croak "Missing <dipstaging> configuration block in config\n";
+    }
+
+    # Undefined if no <manifest> config block
+    if (exists $confighash{manifest}) {
+        $self->{manifestdb} = new CIHM::Meta::REST::manifest (
+            server => $confighash{manifest}{server},
+            database => $confighash{manifest}{database},
+            type   => 'application/json',
+            clientattrs => {timeout => 3600},
+            );
+    } else {
+        croak "Missing <manifest> configuration block in config\n";
+    }
+
+    # Undefined if no <slug> config block
+    if (exists $confighash{slug}) {
+        $self->{slugdb} = new CIHM::Meta::REST::slug (
+            server => $confighash{slug}{server},
+            database => $confighash{slug}{database},
+            type   => 'application/json',
+            clientattrs => {timeout => 3600},
+            );
+    } else {
+        croak "Missing <slug> configuration block in config\n";
     }
 
     # Undefined if no <swift> config block
@@ -76,7 +121,15 @@ sub initworker {
         croak "No <swift> configuration block in ".$self->configpath."\n";
     }
 
-
+    if (exists $confighash{noid}) {
+        $self->{noidsrv}=new restclient (
+            server => $confighash{noid},
+            type   => 'application/json',
+            clientattrs => {timeout => 3600}
+        );
+    } else {
+        croak "missing noid= in configuration\n";
+    }
 }
 
 
@@ -85,9 +138,21 @@ sub log {
     my $self = shift;
     return $self->{logger};
 }
-sub dipstaging {
+sub canvasdb {
     my $self = shift;
-    return $self->{dipstaging};
+    return $self->{canvasdb};
+}
+sub dipstagingdb {
+    my $self = shift;
+    return $self->{dipstagingdb};
+}
+sub manifestdb {
+    my $self = shift;
+    return $self->{manifestdb};
+}
+sub slugdb {
+    my $self = shift;
+    return $self->{slugdb};
 }
 sub cantaloupe {
     my $self = shift;
@@ -96,6 +161,10 @@ sub cantaloupe {
 sub swift {
     my $self = shift;
     return $self->{swift};
+}
+sub noidsrv {
+    my $self = shift;
+    return $self->{noidsrv};
 }
 
 sub warnings {
@@ -144,12 +213,16 @@ sub smelt {
             aip => $aip,
             configpath => $configpath,
             log => $self->log,
-            dipstaging => $self->dipstaging,
+            canvasdb => $self->canvasdb,
+            dipstagingdb => $self->dipstagingdb,
+            manifestdb => $self->manifestdb,
+            slugdb => $self->slugdb,
             cantaloupe => $self->cantaloupe,
             swift => $self->swift,
             preservation_files => $self->{preservation_files},
             access_metadata => $self->{access_metadata},
-            access_files => $self->{access_files}
+            access_files => $self->{access_files},
+            noidsrv => $self->noidsrv
         })->process;
     } catch {
         $status = 0;
@@ -166,7 +239,7 @@ sub smelt {
 sub postResults {
     my ($self,$aip,$status,$message) = @_;
 
-    $self->dipstaging->update_basic($aip,{ 
+    $self->dipstagingdb->update_basic($aip,{
         "smelt" => encode_json({
             "succeeded" => ($status ? JSON::true : JSON::false),
             "message" => $message,

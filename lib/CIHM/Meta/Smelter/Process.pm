@@ -36,8 +36,8 @@ sub new {
     if (!$self->swift) {
         die "swift object parameter is mandatory\n";
     }
-    if (!$self->dipstaging) {
-        die "dipstaging object parameter is mandatory\n";
+    if (!$self->dipstagingdb) {
+        die "dipstagingdb object parameter is mandatory\n";
     }
     if (!$self->cantaloupe) {
         die "cantaloupe object parameter is mandatory\n";
@@ -64,9 +64,25 @@ sub log {
     my $self = shift;
     return $self->args->{log};
 }
-sub dipstaging {
+sub noidsrv {
     my $self = shift;
-    return $self->args->{dipstaging};
+    return $self->args->{noidsrv};
+}
+sub canvasdb {
+    my $self = shift;
+    return $self->args->{canvasdb};
+}
+sub dipstagingdb {
+    my $self = shift;
+    return $self->args->{dipstagingdb};
+}
+sub manifestdb {
+    my $self = shift;
+    return $self->args->{manifestdb};
+}
+sub slugdb {
+    my $self = shift;
+    return $self->args->{slugdb};
 }
 sub cantaloupe {
     my $self = shift;
@@ -108,6 +124,10 @@ sub canvases {
     my ($self) = @_;
     return $self->{canvases};
 }
+sub filemetadata {
+    my $self = shift;
+    return $self->{filemetadata};
+}
 
 
 sub process {
@@ -115,53 +135,29 @@ sub process {
 
     # TODO: Confirm slug isn't used.
 
-    $self->parse_mets();
+    $self->loadFileMeta();
+
+    $self->parseMETS();
     my $pagecount = (scalar @{$self->divs})-1;
-    my $borndigital=$self->borndigital();
+    my $borndigital=$self->bornDigital();
 
-
+    $self->buildManifest();
     if ($borndigital) {
-        self->manifest->{'masterPages'}=$self->getpagelabels();
+        $self->manifest->{'type'}='pdf';
+        $self->manifest->{'masterPages'}=$self->getPageLabels();
+        # Move from the default position used in buildManifest(), as born digital is 'special'
+        $self->manifest->{'master'}=$self->manifest->{'ocrPdf'};
+        delete $self->manifest->{'ocrPdf'};
     } else {
-        my @canvases;
-        my $pagelabels=$self->getpagelabels();
-        if (scalar @{$pagelabels} != $pagecount) {
-            die "Pagecount=$pagecount , count of labels=".scalar @{$pagelabels}."\n";
-        }
-        for my $index (0..$pagecount-1) {
-            my $div = $self->divs->[$index+1];
-            $canvases[$index]->{'source'}='cihm';
-            $canvases[$index]->{label}->{none}=$pagelabels->[$index];
-            $canvases[$index]->{'_id'}="Noid for $index";
-            my $master=$div->{'master.flocat'};
-            die "Missing Master for index=$index\n" if (! $master);
-            my $url=$self->aip."/".$master;
-            $canvases[$index]->{'master'}={
-                'url' => $url,
-                'mime' => $div->{'master.mimetype'}
-            };
-            my $path=uri_escape_utf8($url)."/info.json";
-            my $res=$self->cantaloupe->get($path,{},{deserializer => 'application/json'});
-            # TODO: the 403 is a bit odd!
-	        if ($res->code != 200 && $res->code != 403) {
-	            die "Cantaloupe call to `$path` returned: ".$res->code."\n";
-	        }
-	        if (defined $res->data->{height}) {
-	            $canvases[$index]->{'master'}->{'height'}=$res->data->{height};
-            }
-            if (defined $res->data->{width}) {
-	            $canvases[$index]->{'master'}->{'width'}=$res->data->{width};
-	        }
-            if (defined $div->{'distribution.flocat'}) {
-	            $canvases[$index]->{'ocrPdf'}= {
-                    'url' => $self->aip."/".$div->{'distribution.flocat'}
-                }
-            }
-        }
-        $self->manifest->{'canvases'}=\@canvases;
+        $self->manifest->{'type'}='multicanvas';
+        $self->buildCanvases();
     }
 
-    print Dumper($self->manifest,$pagecount, $self->divs);
+    $self->assignNoids();
+
+    print Dumper($self->manifest,$self->canvases, $pagecount, $self->divs);
+
+    #$self->writeDocuments();
 
     # TODO: Set Slug for manifest noid.
 }
@@ -186,7 +182,7 @@ sub get_metadata {
     }
 }
 
-sub parse_mets {
+sub parseMETS {
     my ($self) = @_;
 
 
@@ -295,7 +291,7 @@ sub aipfile {
     return substr(File::Spec->rel2abs($href,'//'.$metsdir),1);
 }
 
-sub borndigital {
+sub bornDigital {
     my ($self) = @_;
 
     # It is born digital if the page divs have only dmd information (txtmap made from PDF) and a label.
@@ -309,7 +305,7 @@ sub borndigital {
     return 1;
 }
 
-sub getpagelabels {
+sub getPageLabels {
     my ($self) = @_;
 
     my @labels;
@@ -318,10 +314,163 @@ sub getpagelabels {
         my $label=$self->divs->[$index]->{label};
 
         if (!$label || $label eq '') {
-            $label = "Image $index";
+            die "Label missing for index $index\n";
         }
-        push @labels, $label;
+        push @labels, { none => [$label]};
     }
     return \@labels;
 }
+
+
+sub buildManifest {
+    my ($self) = @_;
+
+    # Item is in div 0
+    my $div = $self->divs->[0];
+    my $label=$div->{label};
+
+    if (!$label || $label eq '') {
+        die "Missing item label\n";
+    }
+    $self->manifest->{label}->{none}=[$label];
+
+    if (defined $div->{'distribution.flocat'}) {
+        warn "Distribution not PDF" if ($div->{'distribution.mimetype'} ne 'application/pdf');
+        $self->manifest->{'ocrPdf'}= {
+            'path' => $self->aip."/".$div->{'distribution.flocat'},
+            'size' => $self->filemetadata->{$div->{'distribution.flocat'}}->{'bytes'}
+        }
+    }
+}
+
+
+sub buildCanvases {
+    my ($self) = @_;
+
+    my @canvases;
+    my @mancanvases;
+
+    my $pagecount = (scalar @{$self->divs})-1;
+    for my $index (0..$pagecount-1) {
+        # Components in div 1+
+        my $div = $self->divs->[$index+1];
+        $mancanvases[$index]->{label}->{none}=[$div->{label}];
+        my $master=$div->{'master.flocat'};
+        die "Missing Master for index=$index\n" if (! $master);
+        my $path=$self->aip."/".$master;
+        $canvases[$index]->{'master'}={
+            'path' => $path,
+            'mime' => $div->{'master.mimetype'},
+            'size' => $self->filemetadata->{$master}->{'bytes'}
+        };
+        $canvases[$index]->{'source'}={
+            'from' => 'cihm',
+            'path' => $path
+        };
+        my $path=uri_escape_utf8($path)."/info.json";
+        my $res=$self->cantaloupe->get($path,{},{deserializer => 'application/json'});
+        # TODO: the 403 is a bit odd!
+	    if ($res->code != 200 && $res->code != 403) {
+	        die "Cantaloupe call to `$path` returned: ".$res->code."\n";
+	    }
+	    if (defined $res->data->{height}) {
+	        $canvases[$index]->{'master'}->{'height'}=$res->data->{height};
+        }
+        if (defined $res->data->{width}) {
+	        $canvases[$index]->{'master'}->{'width'}=$res->data->{width};
+	    }
+        if (defined $div->{'distribution.flocat'}) {
+            warn "Distribution file not PDF for $index\n" if ($div->{'distribution.mimetype'} ne 'application/pdf');
+	        $canvases[$index]->{'ocrPdf'}= {
+                'path' => $self->aip."/".$div->{'distribution.flocat'},
+                'size' => $self->filemetadata->{$div->{'distribution.flocat'}}->{'bytes'}
+            }
+        }
+    }
+    $self->manifest->{'canvases'}=\@mancanvases;
+    $self->{'canvases'}=\@canvases;
+}
+
+
+sub loadFileMeta {
+    my $self=shift;
+
+    $self->{filemetadata}={};
+
+    my $prefix=$self->aip.'/';
+    # List of objects with AIP as prefix
+    my %containeropt = (
+        "prefix" => $prefix
+    );
+
+    # Need to loop possibly multiple times as Swift has a maximum of
+    # 10,000 names.
+    my $more=1;
+    while ($more) {
+        my $bagdataresp = $self->swift->container_get($self->preservation_files,\%containeropt);
+        if ($bagdataresp->code != 200) {
+	        die "container_get(".$self->container.") for $prefix returned ". $bagdataresp->code . " - " . $bagdataresp->message. "\n";
+        };
+        $more=scalar(@{$bagdataresp->content});
+        if ($more) {
+	        $containeropt{'marker'}=$bagdataresp->content->[$more-1]->{name};
+            foreach my $object (@{$bagdataresp->content}) {
+	            my $file=substr $object->{name},(length $prefix);
+	            $self->filemetadata->{$file}=$object;
+	        }
+        }
+    }
+}
+
+sub assignNoids {
+    my $self=shift;
+
+    my @manifestnoids=@{$self->mintNoids(1,'manifest')};
+    die "Couldn't allocate 1 manifest noid\n" if (scalar @manifestnoids != 1);
+    $self->manifest->{'_id'}=$manifestnoids[0];
+
+    my $canvascount=scalar @{$self->canvases};
+    my @canvasnoids=@{$self->mintNoids($canvascount,'canvases')};
+    die "Couldn't allocate $canvascount canvas noids\n" if (scalar @canvasnoids != $canvascount);
+    for my $index (0..$canvascount-1) {
+        $self->manifest->{'canvases'}->[$index]->{'id'}=$canvasnoids[$index];
+        $self->canvases->[$index]->{'_id'}=$canvasnoids[$index];
+    }
+}
+
+# See https://github.com/crkn-rcdr/noid for details
+sub mintNoids {
+    my ($self,$number,$type) = @_;
+
+    return [] if (!$number);
+
+    my $res = $self->noidsrv->post("/mint/$number/$type", {}, {deserializer => 'application/json'});
+    if ($res->code != 200) {
+        die "Fail communicating with noid server for /mint/$number/$type: " . $res->code . "\n";
+    }
+    return $res->data->{ids};
+}
+
+
+# TODO: For now a direct write to CouchDB, later through an Upholstery interface
+sub writeDocuments {
+    my ($self) = @_;
+
+    my $res=$self->manifestdb->post("/".$self->manifestdb->database."/_bulk_docs", { docs => [$self->manifest]}, {deserializer => 'application/json'});
+    if ($res->code != 201) {
+        if (defined $res->response->content) {
+            warn $res->response->content."\n";
+        }
+        die "dbupdate of 'manifest' return code: " . $res->code . "\n";
+    }
+
+    $res=$self->canvasdb->post("/".$self->canvasdb->database."/_bulk_docs", { docs => $self->canvases}, {deserializer => 'application/json'});
+    if ($res->code != 201) {
+        if (defined $res->response->content) {
+            warn $res->response->content."\n";
+        }
+        die "dbupdate of 'canvas' return code: " . $res->code . "\n";
+    }
+}
+
 1;
