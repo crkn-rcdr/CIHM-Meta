@@ -8,7 +8,8 @@ use Switch;
 use URI::Escape;
 use XML::LibXML;
 use XML::LibXSLT;
-use Data::Dumper;
+use Digest::MD5 qw(md5 md5_hex md5_base64);
+#use Data::Dumper;
 
 =head1 NAME
 
@@ -133,7 +134,9 @@ sub filemetadata {
 sub process {
     my ($self) = @_;
 
-    # TODO: Confirm slug isn't used.
+    if ($self->getSlug($self->aip)) {
+        die "Slug=".$self->aip." already exists\n";
+    }
 
     $self->loadFileMeta();
 
@@ -152,14 +155,12 @@ sub process {
         $self->manifest->{'type'}='multicanvas';
         $self->buildCanvases();
     }
-
     $self->assignNoids();
+    $self->dmdManifest();
+    $self->ocrCanvases();
 
-    print Dumper($self->manifest,$self->canvases, $pagecount, $self->divs);
-
-    #$self->writeDocuments();
-
-    # TODO: Set Slug for manifest noid.
+    $self->writeDocuments();
+    $self->setSlug($self->aip,$self->manifest->{'_id'});
 }
 
 
@@ -343,6 +344,42 @@ sub buildManifest {
     }
 }
 
+sub dmdManifest {
+    my $self=shift;
+
+    # Item is in div 0
+    my $div = $self->divs->[0];
+    my $noid = $self->manifest->{'_id'};
+
+    if ($div->{'dmd.type'} ne 'mdWrap') {
+        die "item dmd isn't in mdWrap\n";
+    }
+    my $dmdId=$div->{'dmd.id'};
+    my $dmdType=uc($div->{'dmd.mdtype'});
+
+    my @dmdsec=$self->xpc->findnodes("descendant::mets:dmdSec[\@ID=\"$dmdId\"]",$self->xml);
+    my @md=$dmdsec[0]->nonBlankChildNodes();
+    my @mdrecords=$md[0]->nonBlankChildNodes();
+    my @records=$mdrecords[0]->nonBlankChildNodes();
+    my $xmlrecord=$records[0]->toString(0);
+    my $dmdRecord=utf8::is_utf8($xmlrecord) ? Encode::encode_utf8($xmlrecord) : $xmlrecord;
+    my $dmdDigest=md5_hex($dmdRecord);
+
+    my $object=$noid.'/dmd'.$dmdType.'.xml';
+    my $r = $self->swift->object_head($self->access_metadata,$object);
+    if ($r->code == 404 || ($r->etag ne $dmdDigest)) {
+        $r = $self->swift->object_put($self->access_metadata,$object,$dmdRecord);
+        if ($r->code != 201) {
+	        warn "Failed writing $object - returned ".$r->code."\n";
+        } elsif ($r->etag ne $dmdDigest) {
+            die "object_put didn't return matching etag\n";
+        }
+    } elsif ($r->code != 200) {
+        warn "Head for $object - returned ".$r->code."\n";
+    }
+    $self->manifest->{'dmdType'}= lc($dmdType);
+}
+
 
 sub buildCanvases {
     my ($self) = @_;
@@ -391,6 +428,75 @@ sub buildCanvases {
     $self->{'canvases'}=\@canvases;
 }
 
+
+sub ocrCanvases {
+    my $self=shift;
+
+    my $canvascount=scalar @{$self->canvases};
+
+    for my $index (0..$canvascount-1) {
+        my $div = $self->divs->[$index+1];
+        my $canvas = $self->canvases->[$index];
+        my $noid = $canvas->{'_id'};
+
+        if (exists $div->{'dmd.type'}) {
+            if ($div->{'dmd.type'} ne 'mdWrap') {
+                die "component $index dmd.type isn't mdWrap\n";
+            }
+            my $dmdId=$div->{'dmd.id'};
+            my $dmdType=uc($div->{'dmd.mdtype'});
+
+            my @dmdsec=$self->xpc->findnodes("descendant::mets:dmdSec[\@ID=\"$dmdId\"]",$self->xml);
+            my @md=$dmdsec[0]->nonBlankChildNodes();
+            my @mdrecords=$md[0]->nonBlankChildNodes();
+            my @records=$mdrecords[0]->nonBlankChildNodes();
+            my $xmlrecord=$records[0]->toString(0);
+            my $dmdRecord=utf8::is_utf8($xmlrecord) ? Encode::encode_utf8($xmlrecord) : $xmlrecord;
+            my $dmdDigest=md5_hex($dmdRecord);
+
+            my $object=$noid.'/ocr'.$dmdType.'.xml';
+            my $r = $self->swift->object_head($self->access_metadata,$object);
+            if ($r->code == 404 || ($r->etag ne $dmdDigest)) {
+                $r = $self->swift->object_put($self->access_metadata,$object,$dmdRecord);
+                if ($r->code != 201) {
+	                warn "Failed writing $object - returned ".$r->code."\n";
+                } elsif ($r->etag ne $dmdDigest) {
+                    die "object_put $object didn't return matching etag\n";
+                }
+            } elsif ($r->code != 200) {
+                warn "Head for $object - returned ".$r->code."\n";
+            }
+            $canvas->{'ocrType'}= lc($dmdType);
+        }
+        if (exists $div->{'ocr.flocat'}) {
+            my $object = $self->aip.'/'.$div->{'ocr.flocat'};
+            my $r = $self->swift->object_get($self->preservation_files,$object);
+            if ($r->code != 200) {
+                die("Accessing $object returned code: " . $r->code."\n");
+            }
+            my $xmlrecord=$r->content;
+            my $etag=$r->etag;
+            my $dmdRecord=utf8::is_utf8($xmlrecord) ? Encode::encode_utf8($xmlrecord) : $xmlrecord;
+
+            my $isTxtmap = ($dmdRecord =~ m/\<(txt:){0,1}txtmap/m);
+            my $dmdType=$isTxtmap? "TXTMAP" : "ALTO";
+
+            my $object=$noid.'/ocr'.$dmdType.'.xml';
+            my $r = $self->swift->object_head($self->access_metadata,$object);
+            if ($r->code == 404 || ($r->etag ne $etag)) {
+                $r = $self->swift->object_put($self->access_metadata,$object,$dmdRecord);
+                if ($r->code != 201) {
+	                warn "Failed writing $object - returned ".$r->code."\n";
+                } elsif ($r->etag ne $etag) {
+                    die "object_put $object didn't return matching etag\n";
+                }
+            } elsif ($r->code != 200) {
+                warn "Head for $object - returned ".$r->code."\n";
+            }
+            $canvas->{'ocrType'}= lc($dmdType);
+        }
+    }
+}
 
 sub loadFileMeta {
     my $self=shift;
@@ -470,6 +576,45 @@ sub writeDocuments {
             warn $res->response->content."\n";
         }
         die "dbupdate of 'canvas' return code: " . $res->code . "\n";
+    }
+}
+
+# TODO: Use API once it exists
+sub getSlug {
+    my ($self,$slug) = @_;
+
+    my $res=$self->slugdb->get("/".$self->slugdb->database."/".uri_escape_utf8($slug), {}, {deserializer => 'application/json'});
+    if ($res->code == 404) {
+        return;
+    } elsif ($res->code == 200) {
+        return $res->data;
+    } else {
+        if (defined $res->response->content) {
+            warn $res->response->content."\n";
+        }
+        die "lookupSlug of '$slug' return code: " . $res->code . "\n";
+    }
+}
+
+#
+sub setSlug {
+    my ($self,$slug,$noid) = @_;
+
+    my $type='manifest'; # Always manifest in Smelter
+
+    my $document={
+        '_id' => $slug,
+        'type' => $type,
+        'noid' => $noid
+    };
+    my $res=$self->slugdb->put("/".$self->slugdb->database."/".uri_escape_utf8($slug), $document, {deserializer => 'application/json'});
+    if ($res->code == 201) {
+        return $res->data;
+    } else {
+        if (defined $res->response->content) {
+            warn $res->response->content."\n";
+        }
+        die "setSlug of '$slug' return code: " . $res->code . "\n";
     }
 }
 
