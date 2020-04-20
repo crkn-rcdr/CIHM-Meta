@@ -57,7 +57,27 @@ sub database {
 
 =cut
 
-# Returns the full return object
+
+# Simple call to basic update document
+sub update_basic {
+  my ($self, $uid, $updatedoc) = @_;
+  my ($res, $code, $data);
+
+  #  Post directly as JSON data (Different from other couch databases)
+  $self->type("application/json");
+  $res = $self->post("/".$self->{database}."/_design/sync/_update/basic/".$uid, $updatedoc,  {deserializer => 'application/json'});
+
+  if ($res->code != 201 && $res->code != 200) {
+      warn "_update/basic/$uid POST return code: " . $res->code . "\n";
+  }
+
+  # _update function returns json.
+  return $res->data;
+}
+
+
+
+# Call used by CIHM::Meta::RepoSync, and needs to be compatable with that functionality.
 sub update_basic_full {
   my ($self, $uid, $updatedoc) = @_;
   my ($res, $code, $data);
