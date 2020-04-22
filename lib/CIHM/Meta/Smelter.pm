@@ -189,7 +189,7 @@ sub getNextAIP {
     }
 
     $self->dipstaging->type("application/json");
-    my $res = $self->dipstaging->get("/".$self->dipstaging->database."/_design/sync/_view/smeltq?reduce=false&descending=true&limit=".$self->limit.$skipparam,{}, {deserializer => 'application/json'});
+    my $res = $self->dipstaging->get("/".$self->dipstaging->database."/_design/sync/_view/smeltq?reduce=false&limit=".$self->limit.$skipparam,{}, {deserializer => 'application/json'});
     if ($res->code == 200) {
         if (exists $res->data->{rows}) {
             foreach my $hr (@{$res->data->{rows}}) {
