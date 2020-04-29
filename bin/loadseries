@@ -101,8 +101,8 @@ if (exists $confighash{cap_collections}) {
 
 
 # cap_collections sourced collections
+print "Load cap_collections...\n";
 my %capcols;
-
 if (! $nocapcol) {
 	$res = $cap_collections->get("/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
 	if ($res->code != 200) {
@@ -133,9 +133,9 @@ if (exists $confighash{collection}) {
 }
 
 # Undefined if no <slug> config block
-my $slug;
+my $slugdb;
 if (exists $confighash{slug}) {
-    $slug = new CIHM::Meta::REST::slug (
+    $slugdb = new CIHM::Meta::REST::slug (
 		server => $confighash{slug}{server},
 		database => $confighash{slug}{database},
 		type   => 'application/json',
@@ -164,7 +164,7 @@ if (exists $confighash{internalmeta}) {
 
 # Hash by slug id from 'internalmeta' series records
 my %seriesslugs;
-
+print "Loading series slugs from 'internalmeta'...\n";
 if (! $noseries) {
 	$internalmeta->type("application/json");
 	my $key="\"approved\",\"aip\",\"series\"";
@@ -208,11 +208,12 @@ if (! $noseries) {
 # Building the collections
 
 ## Load existing 'slug' entries
+print "Load slugs...\n";
 my %slugentries;
-$res = $slug->get("/".$slug->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
+$res = $slugdb->get("/".$slugdb->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
 if ($res->code != 200) {
     if (defined $res->response->content) {
-	warn $res->response->content."\n";
+		warn $res->response->content."\n";
     }
     die "slug/_all_docs return code: " . $res->code . "\n";
 }
@@ -222,6 +223,7 @@ foreach my $slugentry (@{$res->data->{rows}}) {
 
 
 ## Load existing 'collection' entries
+print "Load existing 'collection' entries...\n";
 my %collectionentries;
 $res = $collection->get("/".$collection->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
 if ($res->code != 200) {
@@ -242,6 +244,7 @@ foreach my $collection (@{$res->data->{rows}}) {
 }
 
 # Add in any missing collections from cap_collections
+print "Add any missing cap collections...\n";
 foreach my $capcol (keys %capcols) {
     findCreateCollection({
 		slug => $capcol,
@@ -528,8 +531,8 @@ sub postUpdates {
 
     print "Posting ".scalar(@{$dbupdate->{docs}})." slug updates.\n";
 
-    $slug->type("application/json");
-    $res = $slug->post("/".$slug->database."/_bulk_docs", $dbupdate, {deserializer => 'application/json'});
+    $slugdb->type("application/json");
+    $res = $slugdb->post("/".$slugdb->database."/_bulk_docs", $dbupdate, {deserializer => 'application/json'});
     if ($res->code != 201) {
 		if (defined $res->response->content) {
 			warn $res->response->content."\n";
