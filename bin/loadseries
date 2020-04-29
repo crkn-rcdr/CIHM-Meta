@@ -29,6 +29,7 @@ use File::chdir;
 my $conf = "/etc/canadiana/tdr/tdr.conf";
 my $nocapcol;
 my $noseries;
+my $nomanifests;
 my $noupdatedmd;
 my $validate;
 my $checktags;
@@ -38,6 +39,7 @@ GetOptions (
     'conf:s' => \$conf,
 	'nocapcol' => \$nocapcol,
 	'noseries' => \$noseries,
+	'nomanifests' => \$nomanifests,
 	'noupdatedmd' => \$noupdatedmd,
 	'validate' => \$validate,
 	'checktags' => \$checktags,
@@ -164,8 +166,8 @@ if (exists $confighash{internalmeta}) {
 
 # Hash by slug id from 'internalmeta' series records
 my %seriesslugs;
-print "Loading series slugs from 'internalmeta'...\n";
 if (! $noseries) {
+	print "Loading series slugs from 'internalmeta'...\n";
 	$internalmeta->type("application/json");
 	my $key="\"approved\",\"aip\",\"series\"";
 	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
@@ -357,6 +359,43 @@ if (! $noseries) {
 
 	}
 }
+
+if (! $nomanifests) {
+	print "Add any missing manifests to collections\n";
+	$internalmeta->type("application/json");
+	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/coltitles?reduce=true&group_level=1", {}, {deserializer => 'application/json'});
+	if ($res->code != 200) {
+		die "cotitles return code: " . $res->code . "\n";
+	}
+	foreach my $thistag (@{$res->data->{rows}}) {
+		my $key= $thistag->{key};
+		my $noid = getNoidFromSlug($key);
+		if ($noid) {
+			my $colres = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/coltitles?reduce=false&include_docs=false&startkey=\"$key\"&endkey=\"$key\ufff0\'\"", {}, {deserializer => 'application/json'});
+			if ($colres->code != 200) {
+				die "cotitles for startkey=$key return code: " . $colres->code . "\n";
+			}
+			my @items;
+			foreach my $item (@{$colres->data->{rows}}) {
+				my $itemslug=$item->{id};
+				my $itemnoid=getNoidFromSlug($itemslug);
+				if ($itemnoid) {
+					push @items,$itemnoid;
+				} else {
+					print "  No noid for AIPID=$itemslug\n";
+				}
+			}
+			findCreateCollection({
+				slug => $key,
+				nocreate => 1,
+				items => \@items
+			});
+		} else {
+			print "  No noid for tag=$key\n";
+		}
+	}
+}
+
 # Clean up unused hash
 undef %seriesslugs;
 
