@@ -211,6 +211,7 @@ if (! $noseries) {
 
 ## Load existing 'slug' entries
 print "Load slugs...\n";
+my %slugfromnoid;
 my %slugentries;
 $res = $slugdb->get("/".$slugdb->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
 if ($res->code != 200) {
@@ -220,9 +221,10 @@ if ($res->code != 200) {
     die "slug/_all_docs return code: " . $res->code . "\n";
 }
 foreach my $slugentry (@{$res->data->{rows}}) {
-    %{$slugentries{$slugentry->{key}}}=%{$slugentry->{doc}};
+	if (substr($slugentry->{key},0,8) ne '_design/') {
+	    %{$slugentries{$slugentry->{key}}}=%{$slugentry->{doc}};
+	}
 }
-
 
 ## Load existing 'collection' entries
 print "Load existing 'collection' entries...\n";
@@ -235,13 +237,15 @@ if ($res->code != 200) {
     die "collection/_all_docs return code: " . $res->code . "\n";
 }
 foreach my $collection (@{$res->data->{rows}}) {
-	my $noid = $collection->{key};
-    %{$collectionentries{$noid}}=%{$collection->{doc}};
-    # Transition/testing
-	if (exists $collectionentries{$noid}{slug}) {
-		setNoidForSlug($collectionentries{$noid}{slug},$noid);
-		delete $collectionentries{$noid}{slug};
-		$collectionentries{$noid}{updated}=1;
+	if (substr($collection->{key},0,8) ne '_design/') {
+		my $noid = $collection->{key};
+		%{$collectionentries{$noid}}=%{$collection->{doc}};
+		# Transition/testing
+		if (exists $collectionentries{$noid}{slug}) {
+			setNoidForSlug($collectionentries{$noid}{slug},$noid);
+			delete $collectionentries{$noid}{slug};
+			$collectionentries{$noid}{updated}=1;
+		}
 	}
 }
 
@@ -360,38 +364,23 @@ if (! $noseries) {
 	}
 }
 
+
+initSlugFromNoid();  # Ensure updated before doing later lookups
+
 if (! $nomanifests) {
 	print "Add any missing manifests to collections\n";
-	$internalmeta->type("application/json");
-	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/coltitles?reduce=true&group_level=1", {}, {deserializer => 'application/json'});
-	if ($res->code != 200) {
-		die "cotitles return code: " . $res->code . "\n";
-	}
-	foreach my $thistag (@{$res->data->{rows}}) {
-		my $key= $thistag->{key};
-		my $noid = getNoidFromSlug($key);
-		if ($noid) {
-			my $colres = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/coltitles?reduce=false&include_docs=false&startkey=\"$key\"&endkey=\"$key\ufff0\'\"", {}, {deserializer => 'application/json'});
-			if ($colres->code != 200) {
-				die "cotitles for startkey=$key return code: " . $colres->code . "\n";
-			}
-			my @items;
-			foreach my $item (@{$colres->data->{rows}}) {
-				my $itemslug=$item->{id};
-				my $itemnoid=getNoidFromSlug($itemslug);
-				if ($itemnoid) {
-					push @items,$itemnoid;
-				} else {
-					print "  No noid for AIPID=$itemslug\n";
-				}
-			}
-			findCreateCollection({
-				slug => $key,
-				nocreate => 1,
-				items => \@items
-			});
+
+	foreach my $noid (keys %collectionentries) {
+		my $entry = $collectionentries{$noid};
+		my $slug = getSlugFromNoid($noid);
+		if (!$slug) {
+			print "  $noid has no slug\n";
+			next;
+		}
+		if ($entry->{ordered}) {
+			updateSeriesItems($slug);
 		} else {
-			print "  No noid for tag=$key\n";
+			updateCollectionItems($slug);
 		}
 	}
 }
@@ -424,6 +413,64 @@ if ($validate) {
 
 
 ### Helper functions
+
+sub updateSeriesItems {
+	my ($slug) = @_;
+
+	my $noid = getNoidFromSlug($slug);
+	if ($noid) {
+		my $colres = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/issues?reduce=false&include_docs=false&&startkey=[\"$slug\"]&endkey=[\"$slug\",{}]", {}, {deserializer => 'application/json'});
+		if ($colres->code != 200) {
+			die "issues for startkey=$slug return code: " . $colres->code . "\n";
+		}
+		my @items;
+		foreach my $item (@{$colres->data->{rows}}) {
+			my $itemslug=$item->{id};
+			my $itemnoid=getNoidFromSlug($itemslug);
+			if ($itemnoid) {
+				push @items,$itemnoid;
+			} else {
+				print "  No noid for issue AIPID=$itemslug\n";
+			}
+		}
+		findCreateCollection({
+			slug => $slug,
+			nocreate => 1,
+			oitems => \@items
+		});
+	} else {
+		print "  No noid for series slug=$slug\n";
+	}
+}
+
+sub updateCollectionItems {
+	my ($slug) = @_;
+
+	my $noid = getNoidFromSlug($slug);
+	if ($noid) {
+		my $colres = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/coltitles?reduce=false&include_docs=false&startkey=\"$slug\"&endkey=\"$slug\ufff0\'\"", {}, {deserializer => 'application/json'});
+		if ($colres->code != 200) {
+			die "cotitles for startkey=$slug return code: " . $colres->code . "\n";
+		}
+		my @items;
+		foreach my $item (@{$colres->data->{rows}}) {
+			my $itemslug=$item->{id};
+			my $itemnoid=getNoidFromSlug($itemslug);
+			if ($itemnoid) {
+				push @items,$itemnoid;
+			} else {
+				print "  No noid for AIPID=$itemslug\n";
+			}
+		}
+		findCreateCollection({
+			slug => $slug,
+			nocreate => 1,
+			items => \@items
+		});
+	} else {
+		print "  No noid for collection slug=$slug\n";
+	}
+}
 
 sub updateDMD {
 	my ($collection) = @_;
@@ -535,6 +582,9 @@ sub postUpdates {
 
 		if (! (keys %{$entry->{label}})) {
 			my $slug = getSlugFromNoid($noidkey);
+			if (!$slug) {
+				$slug="[unknown]";
+			}
 			print "No label for $noidkey slug=$slug\n";
 		}
 
@@ -620,6 +670,7 @@ sub findCreateCollection {
 		$collectionentries{$noid}{items}=[];
 		$collectionentries{$noid}{updated}=1;
 	}
+	# Appending primarily used for unordered collections
     if (exists $args->{items}) {
 		# Append any missing items
 		my $lc = List::Compare->new($args->{items},$collectionentries{$noid}{items});
@@ -628,6 +679,12 @@ sub findCreateCollection {
 			push @{$collectionentries{$noid}{items}} , @toadd;
 			$collectionentries{$noid}{updated}=1;
 		}
+    }
+	# Replacing used for ordered collections.
+    if (exists $args->{oitems}) {
+		# oitems replaces items (as they are assumed ordered and complete)
+		@{$collectionentries{$noid}{items}}=@{$args->{oitems}};
+		$collectionentries{$noid}{updated}=1;
     }
 
 	if (ref $collectionentries{$noid}{label} ne ref {}) {
@@ -691,12 +748,26 @@ sub getNoidFromSlug {
 	return $slugentries{$slug}{noid} if exists $slugentries{$slug};
 }
 
+sub getEntryFromSlug {
+	my ($slug) = @_;
+
+	return $slugentries{$slug};
+}
+
+
+
+#  Hash must be initialized whenever updates made to slugentries
+sub initSlugFromNoid {
+	%slugfromnoid = map {
+		if (exists $slugentries{$_}{noid}) {
+			$slugentries{$_}{noid} => $_;
+		}
+	} keys %slugentries;
+}
 sub getSlugFromNoid {
 	my ($noid) = @_;
 
-	foreach my $slug (keys %slugentries) {
-		return $slug if ($slugentries{$slug}{noid} eq $noid);
-	}
+	return $slugfromnoid{$noid};
 }
 
 sub setNoidForSlug {
