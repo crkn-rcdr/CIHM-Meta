@@ -12,9 +12,11 @@ use Data::Dumper;
 
 my $conf = "/etc/canadiana/tdr/tdr.conf";
 my $limit = 10000;
+my $quiet;
 GetOptions (
     'conf=s' => \$conf,
-	'limit=i' => \$limit
+	'limit=i' => \$limit,
+	'quiet' => \$quiet
     );
 
 my %confighash = new Config::General(
@@ -67,7 +69,7 @@ while ($count) {
 	}
 	my $rows=$res->data->{rows};
 	$count = scalar @{$rows};
-	print "Count: $count\n";
+	print "Count: $count\n" if (! $quiet);
 	if ($count >0) {
 		my @updates;
 		my $firstkey=$rows->[0]->{'id'};
@@ -102,12 +104,12 @@ while ($count) {
 			my $orphan= ! exists $canvasfound{$id};
 			# Is orphan, but not currently set
 			if ($orphan && ( ! (exists $doc->{orphan}) || ! ($doc->{orphan}))) {
-				print "$id is orphan, and needs updating\n";
+				print "$id is orphan, and needs updating\n" if (!$quiet);
 				$doc->{orphan}=JSON::true;
 				push @updates, $doc;
 			}
 			if (!$orphan && exists $doc->{orphan} && $doc->{orphan}) {
-				print "$id not orphan, and needs updating\n";
+				print "$id not orphan, and needs updating\n" if (!$quiet);
 				$doc->{orphan}=JSON::false;
 				push @updates, $doc;
 			}
@@ -123,6 +125,6 @@ while ($count) {
     		}
 		}
 		my $lastkey=$rows->[$lastcount]->{'id'};
-		print "FirstKey: $firstkey LastKey: $lastkey StartKey: $startkey \n";
+		print "FirstKey: $firstkey LastKey: $lastkey StartKey: $startkey \n" if (!$quiet);
 	} 
 }
