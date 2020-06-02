@@ -94,7 +94,7 @@ sub new {
 
     # Undefined if no <repoanalysis> config block
     if ( exists $confighash{repoanalysis} ) {
-        $self->{dipstaging} = new CIHM::Meta::REST::repoanalysis(
+        $self->{repoanalysis} = new CIHM::Meta::REST::repoanalysis(
             server      => $confighash{repoanalysis}{server},
             database    => $confighash{repoanalysis}{database},
             type        => 'application/json',
@@ -102,18 +102,23 @@ sub new {
             clientattrs => { timeout => 3600 },
         );
     }
-    $self->{dbs} = [];
+    $self->{dbs}     = [];
+    $self->{dbnames} = [];
     if ( $self->dipstaging ) {
-        push @{ $self->dbs }, $self->dipstaging;
+        push @{ $self->dbs },     $self->dipstaging;
+        push @{ $self->dbnames }, "dipstaging";
     }
     if ( $self->internalmeta ) {
-        push @{ $self->dbs }, $self->internalmeta;
+        push @{ $self->dbs },     $self->internalmeta;
+        push @{ $self->dbnames }, "internalmeta";
     }
     if ( $self->wipmeta ) {
-        push @{ $self->dbs }, $self->wipmeta;
+        push @{ $self->dbs },     $self->wipmeta;
+        push @{ $self->dbnames }, "dipstaging";
     }
     if ( $self->repoanalysis ) {
-        push @{ $self->dbs }, $self->repoanalysis;
+        push @{ $self->dbs },     $self->repoanalysis;
+        push @{ $self->dbnames }, "repoanalysis";
     }
     if ( !@{ $self->dbs } ) {
         croak "No output databases defined\n";
@@ -202,6 +207,11 @@ sub dbs {
     return $self->{dbs};
 }
 
+sub dbnames {
+    my $self = shift;
+    return $self->{dbnames};
+}
+
 sub since {
     my $self = shift;
     return $self->{args}->{since};
@@ -215,7 +225,8 @@ sub localdocument {
 sub reposync {
     my ($self) = @_;
 
-    $self->log->info("Synchronizing \"tdrepo\" data...");
+    $self->log->info(
+        "Synchronizing \"tdrepo\" data to: " . join ',', @{$self->dbnames});
 
     my $newestaips = $self->tdrepo->get_newestaip(
         {
