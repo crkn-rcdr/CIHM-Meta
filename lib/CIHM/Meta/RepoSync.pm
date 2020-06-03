@@ -114,7 +114,7 @@ sub new {
     }
     if ( $self->wipmeta ) {
         push @{ $self->dbs },     $self->wipmeta;
-        push @{ $self->dbnames }, "dipstaging";
+        push @{ $self->dbnames }, "wipmeta";
     }
     if ( $self->repoanalysis ) {
         push @{ $self->dbs },     $self->repoanalysis;
