@@ -39,7 +39,7 @@ sub new {
     }
     $self->{args} = $args;
 
-    $self->{skip} = delete $args->{skip};
+    $self->{skip}       = delete $args->{skip};
     $self->{descending} = delete $args->{descending};
 
     $self->{maxprocs} = delete $args->{maxprocs};
@@ -161,20 +161,8 @@ sub smelter {
     my $sem = new Coro::Semaphore( $self->maxprocs * 2 );
     my $somework;
 
-# Dimensions from filemeta
-#TODO    my ($aip,$metspath,$manifestdate) = ("oocihm.8_04957_172", "data/sip/data/metadata.xml", "2017-04-21T02:08:40Z"); {
-# Dimensions from mets
-# my $next={aip => "ooga.NRCan_114", metspath => "data/sip/data/metadata.xml", manifestdate => "2017-04-26T14:00:32Z"}; {
-# First AIP with ALTO XML data
-# my $next={aip => "oocihm.lac_reel_h3040", metspath => "data/sip/data/metadata.xml", manifestdate => "2017-05-25T15:20:59Z"}; {
-# No dimensions (mets or filemeta)
-# my $next={aip => "ooga.NRCan_108", metspath => "data/sip/data/metadata.xml", manifestdate => "2017-04-26T14:00:32Z"}; {
-# Has item PDF
-#my $next={aip => "oop.debates_CDC2501_20", metspath => "data/sip/data/metadata.xml", manifestdate => "2013-08-28T12:07:47Z"}; {
-
-    while ( my $next = $self->getNextAIP ) {
+    while ( my $aip = $self->getNextAIP ) {
         $somework = 1;
-        my $aip = $next->{aip};
         $self->{inprogress}->{$aip} = 1;
         $sem->down;
         $pool->(
@@ -225,13 +213,7 @@ sub getNextAIP {
             foreach my $hr ( @{ $res->data->{rows} } ) {
                 my $uid = $hr->{id};
                 if ( !exists $self->{inprogress}->{$uid} ) {
-                    return (
-                        {
-                            aip          => $uid,
-                            metspath     => $hr->{value}->{path},
-                            manifestdate => $hr->{value}->{manifestdate}
-                        }
-                    );
+                    return $uid;
                 }
             }
         }
