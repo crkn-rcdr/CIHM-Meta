@@ -13,7 +13,6 @@ use CIHM::Meta::REST::cantaloupe;
 use CIHM::Meta::REST::canvas;
 use CIHM::Meta::REST::dipstaging;
 use CIHM::Meta::REST::manifest;
-use CIHM::Meta::REST::slug;
 use CIHM::Meta::Smelter::Process;
 
 our $self;
@@ -94,19 +93,6 @@ sub initworker {
         croak "Missing <manifest> configuration block in config\n";
     }
 
-    # Undefined if no <slug> config block
-    if ( exists $confighash{slug} ) {
-        $self->{slugdb} = new CIHM::Meta::REST::slug(
-            server      => $confighash{slug}{server},
-            database    => $confighash{slug}{database},
-            type        => 'application/json',
-            clientattrs => { timeout => 3600 },
-        );
-    }
-    else {
-        croak "Missing <slug> configuration block in config\n";
-    }
-
     # Undefined if no <swift> config block
     if ( exists $confighash{swift} ) {
         my %swiftopt = ( furl_options => { timeout => 120 } );
@@ -157,11 +143,6 @@ sub manifestdb {
     return $self->{manifestdb};
 }
 
-sub slugdb {
-    my $self = shift;
-    return $self->{slugdb};
-}
-
 sub cantaloupe {
     my $self = shift;
     return $self->{cantaloupe};
@@ -209,8 +190,6 @@ sub smelt {
     $self->{aip}     = $aip;
     $self->{message} = '';
 
-    $self->log->info("Processing $aip");
-
     AE::log debug => "$aip Before ($$)";
 
     my $status;
@@ -226,7 +205,6 @@ sub smelt {
                 canvasdb           => $self->canvasdb,
                 dipstagingdb       => $self->dipstagingdb,
                 manifestdb         => $self->manifestdb,
-                slugdb             => $self->slugdb,
                 cantaloupe         => $self->cantaloupe,
                 swift              => $self->swift,
                 preservation_files => $self->{preservation_files},

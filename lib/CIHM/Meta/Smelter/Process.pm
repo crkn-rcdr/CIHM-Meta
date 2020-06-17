@@ -89,9 +89,9 @@ sub manifestdb {
     return $self->args->{manifestdb};
 }
 
-sub slugdb {
+sub dipdoc {
     my $self = shift;
-    return $self->args->{slugdb};
+    return $self->{dipdoc};
 }
 
 sub cantaloupe {
@@ -152,9 +152,19 @@ sub filemetadata {
 sub process {
     my ($self) = @_;
 
-    if ( $self->getSlug( $self->aip ) ) {
-        die "Slug=" . $self->aip . " already exists\n";
+    $self->loadDipDoc();
+    my $slug = $self->dipdoc->{slug};
+
+    $self->log->info( "Processing " . $self->aip . ", Slug=$slug" );
+
+    if ( my $getres = $self->getSlug($slug) ) {
+        die "Slug=$slug already exists\n";
     }
+
+    $self->manifest->{slug} = $slug;
+
+    # Setting a default
+    $self->manifest->{freezeParameters} = {};
 
     $self->loadFileMeta();
 
@@ -180,7 +190,6 @@ sub process {
     $self->ocrCanvases();
 
     $self->writeDocuments();
-    $self->setSlug( $self->aip, $self->manifest->{'_id'} );
 }
 
 sub get_metadata {
@@ -666,46 +675,43 @@ sub writeDocuments {
 sub getSlug {
     my ( $self, $slug ) = @_;
 
-    my $res = $self->slugdb->get(
-        "/" . $self->slugdb->database . "/" . uri_escape_utf8($slug),
+    my $res = $self->manifestdb->get(
+        "/" . $self->manifestdb->database . "/_design/access/_view/slug?key=" . encode_json($slug),
         {}, { deserializer => 'application/json' } );
     if ( $res->code == 404 ) {
         return;
     }
     elsif ( $res->code == 200 ) {
-        return $res->data;
+        if (ref $res->data->{rows} eq 'ARRAY') {
+            return pop @{$res->data->{rows}};
+        }
     }
     else {
         if ( defined $res->response->content ) {
             warn $res->response->content . "\n";
         }
-        die "lookupSlug of '$slug' return code: " . $res->code . "\n";
+        die "getSlug of '$slug' return code: " . $res->code . "\n";
     }
 }
 
-#
-sub setSlug {
-    my ( $self, $slug, $noid ) = @_;
+sub loadDipDoc {
+    my $self = shift;
 
-    my $type = 'manifest';    # Always manifest in Smelter
-
-    my $document = {
-        '_id'  => $slug,
-        'type' => $type,
-        'noid' => $noid
-    };
-    my $res = $self->slugdb->put(
-        "/" . $self->slugdb->database . "/" . uri_escape_utf8($slug),
-        $document, { deserializer => 'application/json' } );
-    if ( $res->code == 201 ) {
-        return $res->data;
-    }
-    else {
+    my $url =
+      "/" . $self->dipstagingdb->database . "/" . uri_escape( $self->aip );
+    my $res =
+      $self->dipstagingdb->get( $url, {},
+        { deserializer => 'application/json' } );
+    if ( $res->code != 200 ) {
         if ( defined $res->response->content ) {
             warn $res->response->content . "\n";
         }
-        die "setSlug of '$slug' return code: " . $res->code . "\n";
+        die "dipstagingdb get of '"
+          . $self->aip
+          . "' ($url) return code: "
+          . $res->code . "\n";
     }
+    $self->{dipdoc} = $res->data;
 }
 
 1;
