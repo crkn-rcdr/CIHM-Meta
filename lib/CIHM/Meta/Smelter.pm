@@ -31,56 +31,53 @@ CIHM::Meta::Smelter - Extract metadata from CIHM repository and add to 2020+ des
 =cut
 
 sub new {
-    my($class, $args) = @_;
+    my ( $class, $args ) = @_;
     my $self = bless {}, $class;
 
-    if (ref($args) ne "HASH") {
+    if ( ref($args) ne "HASH" ) {
         die "Argument to CIHM::Meta::Smelter->new() not a hash\n";
-    };
+    }
     $self->{args} = $args;
 
-    $self->{skip}=delete $args->{skip};
+    $self->{skip} = delete $args->{skip};
 
-    $self->{maxprocs}=delete $args->{maxprocs};
-    if (! $self->{maxprocs}) {
-        $self->{maxprocs}=3;
+    $self->{maxprocs} = delete $args->{maxprocs};
+    if ( !$self->{maxprocs} ) {
+        $self->{maxprocs} = 3;
     }
 
     # Set up for time limit
     $self->{timelimit} = delete $args->{timelimit};
-    if($self->{timelimit}) {
+    if ( $self->{timelimit} ) {
         $self->{endtime} = time() + $self->{timelimit};
     }
 
-
     # Set up in-progress hash (Used to determine which AIPs which are being
     # processed by a slave so we don't try to do the same AIP twice.
-    $self->{inprogress}={};
+    $self->{inprogress} = {};
 
-    $self->{limit}=delete $args->{limit};
-    if (! $self->{limit}) {
-        $self->{limit} = ($self->{maxprocs})*2+1
+    $self->{limit} = delete $args->{limit};
+    if ( !$self->{limit} ) {
+        $self->{limit} = ( $self->{maxprocs} ) * 2 + 1;
     }
 
     Log::Log4perl->init_once("/etc/canadiana/tdr/log4perl.conf");
     $self->{logger} = Log::Log4perl::get_logger("CIHM::TDR");
 
-
-    my %confighash = new Config::General(
-    	-ConfigFile => $args->{configpath},
-	)->getall;
-
+    my %confighash =
+      new Config::General( -ConfigFile => $args->{configpath}, )->getall;
 
     # Undefined if no <internalmeta> config block
-    if (exists $confighash{dipstaging}) {
-        $self->{dipstaging} = new CIHM::Meta::REST::dipstaging (
-            server => $confighash{dipstaging}{server},
-            database => $confighash{dipstaging}{database},
-            type   => 'application/json',
-            conf   => $args->{configpath},
-            clientattrs => {timeout => 3600},
-            );
-    } else {
+    if ( exists $confighash{dipstaging} ) {
+        $self->{dipstaging} = new CIHM::Meta::REST::dipstaging(
+            server      => $confighash{dipstaging}{server},
+            database    => $confighash{dipstaging}{database},
+            type        => 'application/json',
+            conf        => $args->{configpath},
+            clientattrs => { timeout => 3600 },
+        );
+    }
+    else {
         croak "Missing <dipstaging> configuration block in config\n";
     }
 
@@ -92,58 +89,68 @@ sub args {
     my $self = shift;
     return $self->{args};
 }
+
 sub configpath {
     my $self = shift;
     return $self->{args}->{configpath};
 }
+
 sub skip {
     my $self = shift;
     return $self->{skip};
 }
+
 sub maxprocs {
     my $self = shift;
     return $self->{maxprocs};
 }
+
 sub limit {
     my $self = shift;
     return $self->{limit};
 }
+
 sub endtime {
     my $self = shift;
     return $self->{endtime};
 }
+
 sub log {
     my $self = shift;
     return $self->{logger};
 }
+
 sub dipstaging {
     my $self = shift;
     return $self->{dipstaging};
 }
 
-
 sub smelter {
     my ($self) = @_;
 
+    $self->log->info( "Smelter: conf="
+          . $self->configpath
+          . " skip="
+          . $self->skip
+          . " limit="
+          . $self->limit
+          . " maxprocs="
+          . $self->maxprocs
+          . " timelimit="
+          . $self->{timelimit} );
 
-    $self->log->info("Smelter: conf=".$self->configpath." skip=".$self->skip. " limit=".$self->limit. " maxprocs=" . $self->maxprocs . " timelimit=".$self->{timelimit});
-
-    my $pool = AnyEvent::Fork
-        ->new
-        ->require ("CIHM::Meta::Smelter::Worker")
-        ->AnyEvent::Fork::Pool::run 
-        (
-         "CIHM::Meta::Smelter::Worker::smelt",
-         max        => $self->maxprocs,
-         load       => 2,
-         on_destroy => ( my $cv_finish = AE::cv ),
-        );
-
-
+    my $pool =
+      AnyEvent::Fork->new->require("CIHM::Meta::Smelter::Worker")
+      ->AnyEvent::Fork::Pool::run(
+        "CIHM::Meta::Smelter::Worker::smelt",
+        max        => $self->maxprocs,
+        load       => 2,
+        on_destroy => ( my $cv_finish = AE::cv ),
+      );
 
     # Semaphore keeps us from filling the queue with too many AIPs before
     # some are processed.
-    my $sem = new Coro::Semaphore ($self->maxprocs*2);
+    my $sem = new Coro::Semaphore( $self->maxprocs * 2 );
     my $somework;
 
 # Dimensions from filemeta
@@ -157,16 +164,20 @@ sub smelter {
 # Has item PDF
 #my $next={aip => "oop.debates_CDC2501_20", metspath => "data/sip/data/metadata.xml", manifestdate => "2013-08-28T12:07:47Z"}; {
 
-    while (my $next = $self->getNextAIP) {
-        $somework=1;
-        my $aip=$next->{aip};
-        $self->{inprogress}->{$aip}=1;
+    while ( my $next = $self->getNextAIP ) {
+        $somework = 1;
+        my $aip = $next->{aip};
+        $self->{inprogress}->{$aip} = 1;
         $sem->down;
-        $pool->($aip,$self->configpath,sub {
-            my $aip=shift;
-            $sem->up;
-            delete $self->{inprogress}->{$aip};
-                });
+        $pool->(
+            $aip,
+            $self->configpath,
+            sub {
+                my $aip = shift;
+                $sem->up;
+                delete $self->{inprogress}->{$aip};
+            }
+        );
     }
     undef $pool;
     if ($somework) {
@@ -184,28 +195,38 @@ sub getNextAIP {
     return if $self->endtime && time() > $self->endtime;
 
     my $skipparam = '';
-    if ($self->skip) {
-        $skipparam="&skip=".$self->skip;
+    if ( $self->skip ) {
+        $skipparam = "&skip=" . $self->skip;
     }
 
     $self->dipstaging->type("application/json");
-    my $res = $self->dipstaging->get("/".$self->dipstaging->database."/_design/sync/_view/smeltq?reduce=false&limit=".$self->limit.$skipparam,{}, {deserializer => 'application/json'});
-    if ($res->code == 200) {
-        if (exists $res->data->{rows}) {
-            foreach my $hr (@{$res->data->{rows}}) {
-                my $uid=$hr->{id};
-                if (! exists $self->{inprogress}->{$uid}) {
-                    return ({
-                        aip => $uid,
-                        metspath => $hr->{value}->{path},
-                        manifestdate => $hr->{value}->{manifestdate}
-                            });
+    my $res = $self->dipstaging->get(
+        "/"
+          . $self->dipstaging->database
+          . "/_design/sync/_view/smeltq?reduce=false&limit="
+          . $self->limit
+          . $skipparam,
+        {},
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code == 200 ) {
+        if ( exists $res->data->{rows} ) {
+            foreach my $hr ( @{ $res->data->{rows} } ) {
+                my $uid = $hr->{id};
+                if ( !exists $self->{inprogress}->{$uid} ) {
+                    return (
+                        {
+                            aip          => $uid,
+                            metspath     => $hr->{value}->{path},
+                            manifestdate => $hr->{value}->{manifestdate}
+                        }
+                    );
                 }
             }
         }
     }
     else {
-        warn "_view/smeltq GET return code: ".$res->code."\n"; 
+        warn "_view/smeltq GET return code: " . $res->code . "\n";
     }
     return;
 }
