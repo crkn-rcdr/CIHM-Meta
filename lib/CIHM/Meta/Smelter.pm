@@ -40,6 +40,7 @@ sub new {
     $self->{args} = $args;
 
     $self->{skip} = delete $args->{skip};
+    $self->{descending} = delete $args->{descending};
 
     $self->{maxprocs} = delete $args->{maxprocs};
     if ( !$self->{maxprocs} ) {
@@ -100,6 +101,11 @@ sub skip {
     return $self->{skip};
 }
 
+sub descending {
+    my $self = shift;
+    return $self->{descending};
+}
+
 sub maxprocs {
     my $self = shift;
     return $self->{maxprocs};
@@ -137,7 +143,9 @@ sub smelter {
           . " maxprocs="
           . $self->maxprocs
           . " timelimit="
-          . $self->{timelimit} );
+          . $self->{timelimit}
+          . " descending="
+          . $self->descending );
 
     my $pool =
       AnyEvent::Fork->new->require("CIHM::Meta::Smelter::Worker")
@@ -198,17 +206,20 @@ sub getNextAIP {
     if ( $self->skip ) {
         $skipparam = "&skip=" . $self->skip;
     }
+    my $descparam = '';
+    if ( $self->descending ) {
+        $descparam = "&descending=true";
+    }
 
     $self->dipstaging->type("application/json");
-    my $res = $self->dipstaging->get(
-        "/"
-          . $self->dipstaging->database
-          . "/_design/sync/_view/smeltq?reduce=false&limit="
-          . $self->limit
-          . $skipparam,
-        {},
-        { deserializer => 'application/json' }
-    );
+    my $url = "/"
+      . $self->dipstaging->database
+      . "/_design/sync/_view/smeltq?reduce=false&limit="
+      . $self->limit
+      . $skipparam
+      . $descparam;
+    my $res = $self->dipstaging->get( $url, {},
+        { deserializer => 'application/json' } );
     if ( $res->code == 200 ) {
         if ( exists $res->data->{rows} ) {
             foreach my $hr ( @{ $res->data->{rows} } ) {
