@@ -676,14 +676,19 @@ sub getSlug {
     my ( $self, $slug ) = @_;
 
     my $res = $self->manifestdb->get(
-        "/" . $self->manifestdb->database . "/_design/access/_view/slug?key=" . encode_json($slug),
-        {}, { deserializer => 'application/json' } );
+        "/"
+          . $self->manifestdb->database
+          . "/_design/access/_view/slug?key="
+          . encode_json($slug),
+        {},
+        { deserializer => 'application/json' }
+    );
     if ( $res->code == 404 ) {
         return;
     }
     elsif ( $res->code == 200 ) {
-        if (ref $res->data->{rows} eq 'ARRAY') {
-            return pop @{$res->data->{rows}};
+        if ( ref $res->data->{rows} eq 'ARRAY' ) {
+            return pop @{ $res->data->{rows} };
         }
     }
     else {

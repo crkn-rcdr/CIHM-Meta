@@ -12,29 +12,30 @@ use Fcntl qw(:DEFAULT :flock);
 my $lockfile = '/var/lock/tdr/reposync';
 
 # Only allow one instance to run at a time..
-sysopen(FH, $lockfile, O_WRONLY | O_CREAT) 
+sysopen( FH, $lockfile, O_WRONLY | O_CREAT )
   or die "can't open lockfile=$lockfile: $!\n";
-flock(FH, LOCK_EX | LOCK_NB)
+flock( FH, LOCK_EX | LOCK_NB )
   or exit 0;
-
 
 my $conf = "/etc/canadiana/tdr/tdr.conf";
 my $since;
+
 #  Since can also take date format like "48hours" and "2016-01-01
-my $localdocument = "reposync.".hostname;
+my $localdocument = "reposync." . hostname;
 
-GetOptions (
-    'conf:s' => \$conf,
-    'since:s' => \$since,
+GetOptions(
+    'conf:s'          => \$conf,
+    'since:s'         => \$since,
     'localdocument:s' => \$localdocument
-    );
+);
 
-
-CIHM::Meta::RepoSync->new({ 
-    since => $since,
-    localdocument => $localdocument,
-    configpath => $conf
-                            })->reposync;
+CIHM::Meta::RepoSync->new(
+    {
+        since         => $since,
+        localdocument => $localdocument,
+        configpath    => $conf
+    }
+)->reposync;
 
 1;
 __END__

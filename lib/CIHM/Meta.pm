@@ -16,7 +16,6 @@ Version 0.20
 
 our $VERSION = '0.20';
 
-
 =head1 SYNOPSIS
 
 This specific file doesn't contain code, but is a place used to hold basic
@@ -80,4 +79,4 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 =cut
 
-1; # End of CIHM::Meta
+1;    # End of CIHM::Meta

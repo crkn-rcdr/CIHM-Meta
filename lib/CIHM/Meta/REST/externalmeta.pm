@@ -10,7 +10,6 @@ use Moo;
 with 'Role::REST::Client';
 use Types::Standard qw(HashRef Str Int Enum HasMethods);
 
-
 =head1 NAME
 
 CIHM::Meta::REST::externalmeta - Subclass of Role::REST::Client used to
@@ -32,7 +31,7 @@ sub BUILD {
 
     $self->{LocalTZ} = DateTime::TimeZone->new( name => 'local' );
     $self->{database} = $args->{database};
-    $self->set_persistent_header('Accept' => 'application/json');
+    $self->set_persistent_header( 'Accept' => 'application/json' );
 }
 
 # Simple accessors for now -- Do I want to Moo?
@@ -58,21 +57,22 @@ sub database {
 =cut
 
 sub update_basic {
-  my ($self, $uid, $updatedoc) = @_;
-  my ($res, $code, $data);
+    my ( $self, $uid, $updatedoc ) = @_;
+    my ( $res, $code, $data );
 
-  # This encoding makes $updatedoc variables available as form data
-  $self->type("application/x-www-form-urlencoded");
-  $res = $self->post("/".$self->{database}."/_design/tdr/_update/basic/".$uid, $updatedoc, {deserializer => 'application/json'});
+    # This encoding makes $updatedoc variables available as form data
+    $self->type("application/x-www-form-urlencoded");
+    $res = $self->post(
+        "/" . $self->{database} . "/_design/tdr/_update/basic/" . $uid,
+        $updatedoc, { deserializer => 'application/json' } );
 
-  if ($res->code != 201 && $res->code != 200) {
-      warn "_update/basic/$uid POST return code: " . $res->code . "\n";
-  }
-  if ($res->data) {
-      return $res->data->{return};
-  }
+    if ( $res->code != 201 && $res->code != 200 ) {
+        warn "_update/basic/$uid POST return code: " . $res->code . "\n";
+    }
+    if ( $res->data ) {
+        return $res->data->{return};
+    }
 }
-
 
 =head2 put_attachment
 
@@ -88,73 +88,80 @@ sub update_basic {
   or an integer representing the HTTP return value of the put (201 is success).
 
 =cut
+
 sub put_attachment {
-  my ($self, $uid, $args) = @_;
-  my ($res, $revision, $updatedoc);
+    my ( $self, $uid, $args ) = @_;
+    my ( $res, $revision, $updatedoc );
 
+    if ( exists $args->{updatedoc} ) {
+        $updatedoc = $args->{updatedoc};
+    }
+    else {
+        $updatedoc = {};
+    }
 
-  if(exists $args->{updatedoc}) {
-      $updatedoc = $args->{updatedoc};
-  } else {
-      $updatedoc = {};
-  }
+    if ( !exists $args->{type} ) {
 
-  if (! exists $args->{type}) {
-      # Set JSON as the default attachment mime type
-      $args->{type}="text/json";
-  }
-  my $filename=$args->{filename};
-  if (!$uid || !$filename || !($args->{content})) {
-      croak "Missing UID, filename, or content for put_attachment\n";
-  }
+        # Set JSON as the default attachment mime type
+        $args->{type} = "text/json";
+    }
+    my $filename = $args->{filename};
+    if ( !$uid || !$filename || !( $args->{content} ) ) {
+        croak "Missing UID, filename, or content for put_attachment\n";
+    }
 
-  $res = $self->head("/".$self->database."/$uid",{}, {deserializer => 'application/json'});
-  if ($res->code == 200) {
-      $revision=$res->response->header("etag");
-      $revision =~ s/^\"|\"$//g
-  }
-  else {
-      warn "put_attachment($uid) HEAD return code: ".$res->code."\n"; 
-      return;
-  }
-  $self->clear_headers;
-  $self->set_header('If-Match' => $revision);
-  $self->type($args->{type});
-  $res = $self->put("/".$self->database."/$uid/$filename",$args->{content}, {deserializer => 'application/json'});
-  if ($res->code != 201) {
-      warn "put_attachment($uid) PUT return code: ".$res->code."\n"; 
-  } else {
-      # If successfully attached, add attachment information and upload date.
-      $updatedoc->{'upload'} = $filename;
-      $self->update_basic($uid,$updatedoc);
-  }
-  return $res->code;
+    $res = $self->head( "/" . $self->database . "/$uid",
+        {}, { deserializer => 'application/json' } );
+    if ( $res->code == 200 ) {
+        $revision = $res->response->header("etag");
+        $revision =~ s/^\"|\"$//g;
+    }
+    else {
+        warn "put_attachment($uid) HEAD return code: " . $res->code . "\n";
+        return;
+    }
+    $self->clear_headers;
+    $self->set_header( 'If-Match' => $revision );
+    $self->type( $args->{type} );
+    $res = $self->put( "/" . $self->database . "/$uid/$filename",
+        $args->{content}, { deserializer => 'application/json' } );
+    if ( $res->code != 201 ) {
+        warn "put_attachment($uid) PUT return code: " . $res->code . "\n";
+    }
+    else {
+        # If successfully attached, add attachment information and upload date.
+        $updatedoc->{'upload'} = $filename;
+        $self->update_basic( $uid, $updatedoc );
+    }
+    return $res->code;
 }
 
 sub get_aip {
-    my ($self, $uid) = @_;
+    my ( $self, $uid ) = @_;
 
     $self->type("application/json");
-    my $res = $self->get("/".$self->{database}."/$uid",{}, {deserializer => 'application/json'});
-    if ($res->code == 200) {
+    my $res = $self->get( "/" . $self->{database} . "/$uid",
+        {}, { deserializer => 'application/json' } );
+    if ( $res->code == 200 ) {
         return $res->data;
     }
     else {
-        warn "get_aip return code: ".$res->code."\n"; 
+        warn "get_aip return code: " . $res->code . "\n";
         return;
     }
 }
 
 sub get_attachment {
-    my ($self, $uid, $filename) = @_;
+    my ( $self, $uid, $filename ) = @_;
 
-    my $res = $self->get("/".$self->{database}."/$uid/$filename");
-    if ($res->code == 200) {
+    my $res = $self->get( "/" . $self->{database} . "/$uid/$filename" );
+    if ( $res->code == 200 ) {
+
         # Return the content without deserialization
         return $res->response->content;
     }
     else {
-        warn "get_attachment return code: ".$res->code."\n"; 
+        warn "get_attachment return code: " . $res->code . "\n";
         return;
     }
 }

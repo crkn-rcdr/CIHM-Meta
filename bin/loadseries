@@ -17,9 +17,8 @@ use List::Compare;
 use Digest::MD5 qw(md5 md5_hex md5_base64);
 use File::chdir;
 
-
-
 {
+
     package restclient;
 
     use Moose;
@@ -35,33 +34,32 @@ my $validate;
 my $checktags;
 my $clearitems;
 
-GetOptions (
-    'conf:s' => \$conf,
-	'nocapcol' => \$nocapcol,
-	'noseries' => \$noseries,
-	'nomanifests' => \$nomanifests,
-	'noupdatedmd' => \$noupdatedmd,
-	'validate' => \$validate,
-	'checktags' => \$checktags,
-	'clearitems' => \$clearitems,
-    );
-
-my %confighash = new Config::General(
-    -ConfigFile => $conf,
-    )->getall;
-
-die "missing noid= in configuration\n" if (! exists $confighash{noid});
-
-my $noidsrv= new restclient (
-    server => $confighash{noid},
-    type   => 'application/json',
-    clientattrs => {timeout => 3600}
+GetOptions(
+    'conf:s'      => \$conf,
+    'nocapcol'    => \$nocapcol,
+    'noseries'    => \$noseries,
+    'nomanifests' => \$nomanifests,
+    'noupdatedmd' => \$noupdatedmd,
+    'validate'    => \$validate,
+    'checktags'   => \$checktags,
+    'clearitems'  => \$clearitems,
 );
-die "Failed to create noid client\n" if (!$noidsrv);
-my $res = $noidsrv->get("/", {}, {deserializer => 'application/json'});
-if ($res->code != 200) {
+
+my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
+
+die "missing noid= in configuration\n" if ( !exists $confighash{noid} );
+
+my $noidsrv = new restclient(
+    server      => $confighash{noid},
+    type        => 'application/json',
+    clientattrs => { timeout => 3600 }
+);
+die "Failed to create noid client\n" if ( !$noidsrv );
+my $res = $noidsrv->get( "/", {}, { deserializer => 'application/json' } );
+if ( $res->code != 200 ) {
     die "noid server setup return code: " . $res->code . "\n";
 }
+
 # Array of already allocated collection noids
 my @colNoids;
 
@@ -70,141 +68,153 @@ my $swift;
 my $preservation_files;
 my $access_metadata;
 my $access_files;
-if(exists $confighash{swift}) {
-    my %swiftopt = (
-        furl_options => { timeout => 120 }
-        );
-    foreach ("server","user","password","account", "furl_options") {
-        if (exists  $confighash{swift}{$_}) {
-            $swiftopt{$_}=$confighash{swift}{$_};
+if ( exists $confighash{swift} ) {
+    my %swiftopt = ( furl_options => { timeout => 120 } );
+    foreach ( "server", "user", "password", "account", "furl_options" ) {
+        if ( exists $confighash{swift}{$_} ) {
+            $swiftopt{$_} = $confighash{swift}{$_};
         }
     }
-    $swift=CIHM::Swift::Client->new(%swiftopt);
-    $preservation_files=$confighash{swift}{container};
-	$access_metadata=$confighash{swift}{access_metadata};
-	$access_files=$confighash{swift}{access_files};
-} else {
+    $swift              = CIHM::Swift::Client->new(%swiftopt);
+    $preservation_files = $confighash{swift}{container};
+    $access_metadata    = $confighash{swift}{access_metadata};
+    $access_files       = $confighash{swift}{access_files};
+}
+else {
     die "No <swift> configuration block in $conf\n";
 }
 
-
 # Undefined if no <cap_collection> config block
 my $cap_collections;
-if (exists $confighash{cap_collections}) {
-    $cap_collections = new restclient (
-		server => $confighash{cap_collections}{server}."/".$confighash{cap_collections}{database},
-		type   => 'application/json',
-		clientattrs => {timeout => 3600},
-	);
-    $cap_collections->set_persistent_header('Accept' => 'application/json');
-} else {
+if ( exists $confighash{cap_collections} ) {
+    $cap_collections = new restclient(
+        server => $confighash{cap_collections}{server} . "/"
+          . $confighash{cap_collections}{database},
+        type        => 'application/json',
+        clientattrs => { timeout => 3600 },
+    );
+    $cap_collections->set_persistent_header( 'Accept' => 'application/json' );
+}
+else {
     die "Missing <cap_collections> configuration block in config\n";
 }
-
 
 # cap_collections sourced collections
 print "Load cap_collections...\n";
 my %capcols;
-if (! $nocapcol) {
-	$res = $cap_collections->get("/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
-	if ($res->code != 200) {
-		die "doctype return code: " . $res->code . "\n";
-	}
-	foreach my $collection (@{$res->data->{rows}}) {
-		$capcols{$collection->{id}} = {
-			# cap_collection labels are already IIIF Text Values
-			label => $collection->{doc}->{label},
-			summary => $collection->{doc}->{summary},
-			subcollections => $collection->{doc}->{subcollections}
-		}
-	}
+if ( !$nocapcol ) {
+    $res = $cap_collections->get( "/_all_docs?include_docs=true",
+        {}, { deserializer => 'application/json' } );
+    if ( $res->code != 200 ) {
+        die "doctype return code: " . $res->code . "\n";
+    }
+    foreach my $collection ( @{ $res->data->{rows} } ) {
+        $capcols{ $collection->{id} } = {
+
+            # cap_collection labels are already IIIF Text Values
+            label          => $collection->{doc}->{label},
+            summary        => $collection->{doc}->{summary},
+            subcollections => $collection->{doc}->{subcollections}
+        };
+    }
 }
 
 # Undefined if no <collection> config block
 my $collection;
-if (exists $confighash{collection}) {
-    $collection = new CIHM::Meta::REST::collection (
-		server => $confighash{collection}{server},
-		database => $confighash{collection}{database},
-		type   => 'application/json',
-		conf   => $conf,
-		clientattrs => {timeout => 36000},
-	);
-} else {
+if ( exists $confighash{collection} ) {
+    $collection = new CIHM::Meta::REST::collection(
+        server      => $confighash{collection}{server},
+        database    => $confighash{collection}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
     die "Missing <collection> configuration block in config\n";
 }
 
 # Undefined if no <slug> config block
 my $slugdb;
-if (exists $confighash{slug}) {
-    $slugdb = new CIHM::Meta::REST::slug (
-		server => $confighash{slug}{server},
-		database => $confighash{slug}{database},
-		type   => 'application/json',
-		conf   => $conf,
-		clientattrs => {timeout => 36000},
-	);
-} else {
+if ( exists $confighash{slug} ) {
+    $slugdb = new CIHM::Meta::REST::slug(
+        server      => $confighash{slug}{server},
+        database    => $confighash{slug}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
     die "Missing <slug> configuration block in config\n";
 }
 
-
 # Undefined if no <internalmeta> config block
 my $internalmeta;
-if (exists $confighash{internalmeta}) {
-    $internalmeta = new CIHM::Meta::REST::internalmeta (
-		server => $confighash{internalmeta}{server},
-		database => $confighash{internalmeta}{database},
-		type   => 'application/json',
-		conf   => $conf,
-		clientattrs => {timeout => 3600},
-	);
-} else {
+if ( exists $confighash{internalmeta} ) {
+    $internalmeta = new CIHM::Meta::REST::internalmeta(
+        server      => $confighash{internalmeta}{server},
+        database    => $confighash{internalmeta}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 3600 },
+    );
+}
+else {
     die "Missing <internalmeta> configuration block in config\n";
 }
 
-
 # Hash by slug id from 'internalmeta' series records
 my %seriesslugs;
-if (! $noseries) {
-	print "Loading series slugs from 'internalmeta'...\n";
-	$internalmeta->type("application/json");
-	my $key="\"approved\",\"aip\",\"series\"";
-	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
-	if ($res->code != 200) {
-		die "doctype return code: " . $res->code . "\n";
-	}
-	foreach my $seriesslug (@{$res->data->{rows}}) {
-		# Convert string label to IIIF Text Value
-		my %label = (
-			"none" => [$seriesslug->{doc}->{label}]
-		);
-		$seriesslugs{$seriesslug->{id}}= {
-			public => 1,
-			collections => $seriesslug->{doc}->{collections},
-			label => \%label
-		}
-	}
+if ( !$noseries ) {
+    print "Loading series slugs from 'internalmeta'...\n";
+    $internalmeta->type("application/json");
+    my $key = "\"approved\",\"aip\",\"series\"";
+    $res = $internalmeta->get(
+        "/"
+          . $internalmeta->{database}
+          . "/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]",
+        {},
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 200 ) {
+        die "doctype return code: " . $res->code . "\n";
+    }
+    foreach my $seriesslug ( @{ $res->data->{rows} } ) {
 
+        # Convert string label to IIIF Text Value
+        my %label = ( "none" => [ $seriesslug->{doc}->{label} ] );
+        $seriesslugs{ $seriesslug->{id} } = {
+            public      => 1,
+            collections => $seriesslug->{doc}->{collections},
+            label       => \%label
+        };
+    }
 
-	$key="\"not%20approved\",\"aip\",\"series\"";
-	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]", {}, {deserializer => 'application/json'});
-	if ($res->code != 200) {
-		die "doctype return code: " . $res->code . "\n";
-	}
-	foreach my $seriesslug (@{$res->data->{rows}}) {
-		# Convert string label to IIIF Text Value
-		my %label = (
-			"none" => [$seriesslug->{doc}->{label}]
-		);
-		$seriesslugs{$seriesslug->{id}}= {
-			public => 0,
-			collections => $seriesslug->{doc}->{collections},
-			label => \%label
-		}
-	}
-} else {
-	print "Not loading series from internalmeta\n";
+    $key = "\"not%20approved\",\"aip\",\"series\"";
+    $res = $internalmeta->get(
+        "/"
+          . $internalmeta->{database}
+          . "/_design/tdr/_view/doctype?reduce=false&include_docs=true&startkey=[$key]&endkey=[$key,{}]",
+        {},
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 200 ) {
+        die "doctype return code: " . $res->code . "\n";
+    }
+    foreach my $seriesslug ( @{ $res->data->{rows} } ) {
+
+        # Convert string label to IIIF Text Value
+        my %label = ( "none" => [ $seriesslug->{doc}->{label} ] );
+        $seriesslugs{ $seriesslug->{id} } = {
+            public      => 0,
+            collections => $seriesslug->{doc}->{collections},
+            label       => \%label
+        };
+    }
+}
+else {
+    print "Not loading series from internalmeta\n";
 }
 
 # Building the collections
@@ -213,101 +223,114 @@ if (! $noseries) {
 print "Load slugs...\n";
 my %slugfromnoid;
 my %slugentries;
-$res = $slugdb->get("/".$slugdb->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
-if ($res->code != 200) {
-    if (defined $res->response->content) {
-		warn $res->response->content."\n";
+$res = $slugdb->get( "/" . $slugdb->database . "/_all_docs?include_docs=true",
+    {}, { deserializer => 'application/json' } );
+if ( $res->code != 200 ) {
+    if ( defined $res->response->content ) {
+        warn $res->response->content . "\n";
     }
     die "slug/_all_docs return code: " . $res->code . "\n";
 }
-foreach my $slugentry (@{$res->data->{rows}}) {
-	if (substr($slugentry->{key},0,8) ne '_design/') {
-	    %{$slugentries{$slugentry->{key}}}=%{$slugentry->{doc}};
-	}
+foreach my $slugentry ( @{ $res->data->{rows} } ) {
+    if ( substr( $slugentry->{key}, 0, 8 ) ne '_design/' ) {
+        %{ $slugentries{ $slugentry->{key} } } = %{ $slugentry->{doc} };
+    }
 }
 
 ## Load existing 'collection' entries
 print "Load existing 'collection' entries...\n";
 my %collectionentries;
-$res = $collection->get("/".$collection->database."/_all_docs?include_docs=true", {}, {deserializer => 'application/json'});
-if ($res->code != 200) {
-    if (defined $res->response->content) {
-	warn $res->response->content."\n";
+$res = $collection->get(
+    "/" . $collection->database . "/_all_docs?include_docs=true",
+    {}, { deserializer => 'application/json' } );
+if ( $res->code != 200 ) {
+    if ( defined $res->response->content ) {
+        warn $res->response->content . "\n";
     }
     die "collection/_all_docs return code: " . $res->code . "\n";
 }
-foreach my $collection (@{$res->data->{rows}}) {
-	if (substr($collection->{key},0,8) ne '_design/') {
-		my $noid = $collection->{key};
-		%{$collectionentries{$noid}}=%{$collection->{doc}};
-		# Transition/testing
-		if (exists $collectionentries{$noid}{slug}) {
-			setNoidForSlug($collectionentries{$noid}{slug},$noid);
-			delete $collectionentries{$noid}{slug};
-			$collectionentries{$noid}{updated}=1;
-		}
-	}
+foreach my $collection ( @{ $res->data->{rows} } ) {
+    if ( substr( $collection->{key}, 0, 8 ) ne '_design/' ) {
+        my $noid = $collection->{key};
+        %{ $collectionentries{$noid} } = %{ $collection->{doc} };
+
+        # Transition/testing
+        if ( exists $collectionentries{$noid}{slug} ) {
+            setNoidForSlug( $collectionentries{$noid}{slug}, $noid );
+            delete $collectionentries{$noid}{slug};
+            $collectionentries{$noid}{updated} = 1;
+        }
+    }
 }
 
 # Add in any missing collections from cap_collections
 print "Add any missing cap collections...\n";
-foreach my $capcol (keys %capcols) {
-    findCreateCollection({
-		slug => $capcol,
-		label => $capcols{$capcol}{'label'},
-		summary => $capcols{$capcol}{'summary'},
-		public => 1,
-		ordered => 0	    
-	});
+foreach my $capcol ( keys %capcols ) {
+    findCreateCollection(
+        {
+            slug    => $capcol,
+            label   => $capcols{$capcol}{'label'},
+            summary => $capcols{$capcol}{'summary'},
+            public  => 1,
+            ordered => 0
+        }
+    );
 }
 
 # Parentcollection stays in slugland
 my %parentcollection;
-foreach my $capcol (keys %capcols) {
-	if (defined $capcols{$capcol}{'subcollections'}) {
-		if (ref($capcols{$capcol}{'subcollections'}) eq ref []) {
-			my @items;
+foreach my $capcol ( keys %capcols ) {
+    if ( defined $capcols{$capcol}{'subcollections'} ) {
+        if ( ref( $capcols{$capcol}{'subcollections'} ) eq ref [] ) {
+            my @items;
 
-			foreach my $subcol (@{$capcols{$capcol}{'subcollections'}}) {
-				push @items, $subcol;
-				if (!exists $parentcollection{$subcol}) {
-					$parentcollection{$subcol}=[];
-				}
-				push @{$parentcollection{$subcol}}, $capcol;
-			}
+            foreach my $subcol ( @{ $capcols{$capcol}{'subcollections'} } ) {
+                push @items, $subcol;
+                if ( !exists $parentcollection{$subcol} ) {
+                    $parentcollection{$subcol} = [];
+                }
+                push @{ $parentcollection{$subcol} }, $capcol;
+            }
 
-			my @itemsnoid;
-			foreach my $item (@items) {
-				push @itemsnoid, findCreateCollection({ slug => $item, nocreate => 1 });
-			}
-			# Set the subcollections as items
-			findCreateCollection({
-				slug => $capcol,
-				items => \@itemsnoid,
-				nocreate => 1
-			});
-		} else {
-			print "Subcollections field of $capcol not array!!\n" . Dumper ($capcol, $capcols{$capcol});
-		}
-	}
+            my @itemsnoid;
+            foreach my $item (@items) {
+                push @itemsnoid,
+                  findCreateCollection( { slug => $item, nocreate => 1 } );
+            }
+
+            # Set the subcollections as items
+            findCreateCollection(
+                {
+                    slug     => $capcol,
+                    items    => \@itemsnoid,
+                    nocreate => 1
+                }
+            );
+        }
+        else {
+            print "Subcollections field of $capcol not array!!\n"
+              . Dumper( $capcol, $capcols{$capcol} );
+        }
+    }
 }
 
 # Include the parents of parents
 my $changenothing;
 until ($changenothing) {
-	$changenothing=1;
-	foreach my $subcol (keys %parentcollection) {
-		foreach my $parent (@{$parentcollection{$subcol}}) {
-			if (exists $parentcollection{$parent}) {
-				my $lc = List::Compare->new($parentcollection{$subcol},$parentcollection{$parent});
-				my @toadd = $lc->get_Ronly;
-				if (@toadd) {
-					push @{$parentcollection{$subcol}}, @toadd;
-					$changenothing=0;
-				}
-			}
-		}
-	}
+    $changenothing = 1;
+    foreach my $subcol ( keys %parentcollection ) {
+        foreach my $parent ( @{ $parentcollection{$subcol} } ) {
+            if ( exists $parentcollection{$parent} ) {
+                my $lc = List::Compare->new( $parentcollection{$subcol},
+                    $parentcollection{$parent} );
+                my @toadd = $lc->get_Ronly;
+                if (@toadd) {
+                    push @{ $parentcollection{$subcol} }, @toadd;
+                    $changenothing = 0;
+                }
+            }
+        }
+    }
 }
 
 # print "Parent Collections:\n" . Dumper(\%parentcollection);
@@ -317,239 +340,283 @@ undef %capcols;
 
 # Clear the items field if asked
 if ($clearitems) {
-	print "Clearing items field in series\n";
-	foreach my $noid (keys %collectionentries) {
-		# Ensure that items is empty, whether it doesn't exist or had entries
-		if ((ref $collectionentries{$noid}{items} ne ref []) ||
-			scalar($collectionentries{$noid}{items})) {
-			$collectionentries{$noid}{items}=[];
-			$collectionentries{$noid}{updated}=1;
-		}
-	}
+    print "Clearing items field in series\n";
+    foreach my $noid ( keys %collectionentries ) {
+
+        # Ensure that items is empty, whether it doesn't exist or had entries
+        if ( ( ref $collectionentries{$noid}{items} ne ref [] )
+            || scalar( $collectionentries{$noid}{items} ) )
+        {
+            $collectionentries{$noid}{items}   = [];
+            $collectionentries{$noid}{updated} = 1;
+        }
+    }
 }
 
-if (! $noseries) {
-	print "Add any missing series collections\n";
-	foreach my $serieskey (keys %seriesslugs) {
+if ( !$noseries ) {
+    print "Add any missing series collections\n";
+    foreach my $serieskey ( keys %seriesslugs ) {
 
-		my $seriesnoid = findCreateCollection({
-			slug => $serieskey,
-			public => $seriesslugs{$serieskey}->{public},
-			label => $seriesslugs{$serieskey}->{label},
-			ordered => 1
-		});
+        my $seriesnoid = findCreateCollection(
+            {
+                slug    => $serieskey,
+                public  => $seriesslugs{$serieskey}->{public},
+                label   => $seriesslugs{$serieskey}->{label},
+                ordered => 1
+            }
+        );
 
-		# Remove unwanted parent slugs
+        # Remove unwanted parent slugs
         my @subtract;
-		foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
-            if (exists $parentcollection{$colstring}) {
-                my $lc = List::Compare->new($parentcollection{$colstring},$seriesslugs{$serieskey}{collections});
+        foreach my $colstring ( @{ $seriesslugs{$serieskey}{collections} } ) {
+            if ( exists $parentcollection{$colstring} ) {
+                my $lc = List::Compare->new(
+                    $parentcollection{$colstring},
+                    $seriesslugs{$serieskey}{collections}
+                );
                 push @subtract, $lc->get_intersection;
             }
         }
         if (@subtract) {
-            my $lc = List::Compare->new($seriesslugs{$serieskey}{collections},\@subtract);
-            @{$seriesslugs{$serieskey}{collections}} = $lc->get_Lonly;
+            my $lc = List::Compare->new( $seriesslugs{$serieskey}{collections},
+                \@subtract );
+            @{ $seriesslugs{$serieskey}{collections} } = $lc->get_Lonly;
         }
 
-		# Find list of tag collections series is part of
-		foreach my $colstring (@{$seriesslugs{$serieskey}{collections}}) {
-			findCreateCollection({
-				slug => $colstring,
-				nocreate => 1,
-				items => [ $seriesnoid ]
-			});
-		}
+        # Find list of tag collections series is part of
+        foreach my $colstring ( @{ $seriesslugs{$serieskey}{collections} } ) {
+            findCreateCollection(
+                {
+                    slug     => $colstring,
+                    nocreate => 1,
+                    items    => [$seriesnoid]
+                }
+            );
+        }
 
-	}
+    }
 }
 
+initSlugFromNoid();    # Ensure updated before doing later lookups
 
-initSlugFromNoid();  # Ensure updated before doing later lookups
+if ( !$nomanifests ) {
+    print "Add any missing manifests to collections\n";
 
-if (! $nomanifests) {
-	print "Add any missing manifests to collections\n";
-
-	foreach my $noid (keys %collectionentries) {
-		my $entry = $collectionentries{$noid};
-		my $slug = getSlugFromNoid($noid);
-		if (!$slug) {
-			print "  $noid has no slug\n";
-			next;
-		}
-		if ($entry->{ordered}) {
-			updateSeriesItems($slug);
-		} else {
-			updateCollectionItems($slug);
-		}
-	}
+    foreach my $noid ( keys %collectionentries ) {
+        my $entry = $collectionentries{$noid};
+        my $slug  = getSlugFromNoid($noid);
+        if ( !$slug ) {
+            print "  $noid has no slug\n";
+            next;
+        }
+        if ( $entry->{ordered} ) {
+            updateSeriesItems($slug);
+        }
+        else {
+            updateCollectionItems($slug);
+        }
+    }
 }
 
 # Clean up unused hash
 undef %seriesslugs;
 
-
 # Post updates so far, before working on dmdSec
 postUpdates();
 
 if ($checktags) {
-	checkTags();
+    checkTags();
 }
 
-if (! $noupdatedmd) {
-	print "Updating DMD records\n";
-	foreach my $noid (keys %collectionentries) {
-		# Unordered means it is not a series, and thus we don't have DMD in the repository.
-		if ($collectionentries{$noid}{ordered}) {
-			updateDMD($collectionentries{$noid});
-		}
-	}
-	postUpdates();
+if ( !$noupdatedmd ) {
+    print "Updating DMD records\n";
+    foreach my $noid ( keys %collectionentries ) {
+
+# Unordered means it is not a series, and thus we don't have DMD in the repository.
+        if ( $collectionentries{$noid}{ordered} ) {
+            updateDMD( $collectionentries{$noid} );
+        }
+    }
+    postUpdates();
 }
 
 if ($validate) {
-	validateRecords();
+    validateRecords();
 }
-
 
 ### Helper functions
 
 sub updateSeriesItems {
-	my ($slug) = @_;
+    my ($slug) = @_;
 
-	my $noid = getNoidFromSlug($slug);
-	if ($noid) {
-		my $colres = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/issues?reduce=false&include_docs=false&&startkey=[\"$slug\"]&endkey=[\"$slug\",{}]", {}, {deserializer => 'application/json'});
-		if ($colres->code != 200) {
-			die "issues for startkey=$slug return code: " . $colres->code . "\n";
-		}
-		my @items;
-		foreach my $item (@{$colres->data->{rows}}) {
-			my $itemslug=$item->{id};
-			my $itemnoid=getNoidFromSlug($itemslug);
-			if ($itemnoid) {
-				push @items,$itemnoid;
-			} else {
-				print "  No noid for issue AIPID=$itemslug\n";
-			}
-		}
-		findCreateCollection({
-			slug => $slug,
-			nocreate => 1,
-			oitems => \@items
-		});
-	} else {
-		print "  No noid for series slug=$slug\n";
-	}
+    my $noid = getNoidFromSlug($slug);
+    if ($noid) {
+        my $colres = $internalmeta->get(
+            "/"
+              . $internalmeta->{database}
+              . "/_design/tdr/_view/issues?reduce=false&include_docs=false&&startkey=[\"$slug\"]&endkey=[\"$slug\",{}]",
+            {},
+            { deserializer => 'application/json' }
+        );
+        if ( $colres->code != 200 ) {
+            die "issues for startkey=$slug return code: "
+              . $colres->code . "\n";
+        }
+        my @items;
+        foreach my $item ( @{ $colres->data->{rows} } ) {
+            my $itemslug = $item->{id};
+            my $itemnoid = getNoidFromSlug($itemslug);
+            if ($itemnoid) {
+                push @items, $itemnoid;
+            }
+            else {
+                print "  No noid for issue AIPID=$itemslug\n";
+            }
+        }
+        findCreateCollection(
+            {
+                slug     => $slug,
+                nocreate => 1,
+                oitems   => \@items
+            }
+        );
+    }
+    else {
+        print "  No noid for series slug=$slug\n";
+    }
 }
 
 sub updateCollectionItems {
-	my ($slug) = @_;
+    my ($slug) = @_;
 
-	my $noid = getNoidFromSlug($slug);
-	if ($noid) {
-		my $colres = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/coltitles?reduce=false&include_docs=false&startkey=\"$slug\"&endkey=\"$slug\ufff0\'\"", {}, {deserializer => 'application/json'});
-		if ($colres->code != 200) {
-			die "cotitles for startkey=$slug return code: " . $colres->code . "\n";
-		}
-		my @items;
-		foreach my $item (@{$colres->data->{rows}}) {
-			my $itemslug=$item->{id};
-			my $itemnoid=getNoidFromSlug($itemslug);
-			if ($itemnoid) {
-				push @items,$itemnoid;
-			} else {
-				print "  No noid for AIPID=$itemslug\n";
-			}
-		}
-		findCreateCollection({
-			slug => $slug,
-			nocreate => 1,
-			items => \@items
-		});
-	} else {
-		print "  No noid for collection slug=$slug\n";
-	}
+    my $noid = getNoidFromSlug($slug);
+    if ($noid) {
+        my $colres = $internalmeta->get(
+            "/"
+              . $internalmeta->{database}
+              . "/_design/tdr/_view/coltitles?reduce=false&include_docs=false&startkey=\"$slug\"&endkey=\"$slug\ufff0\'\"",
+            {},
+            { deserializer => 'application/json' }
+        );
+        if ( $colres->code != 200 ) {
+            die "cotitles for startkey=$slug return code: "
+              . $colres->code . "\n";
+        }
+        my @items;
+        foreach my $item ( @{ $colres->data->{rows} } ) {
+            my $itemslug = $item->{id};
+            my $itemnoid = getNoidFromSlug($itemslug);
+            if ($itemnoid) {
+                push @items, $itemnoid;
+            }
+            else {
+                print "  No noid for AIPID=$itemslug\n";
+            }
+        }
+        findCreateCollection(
+            {
+                slug     => $slug,
+                nocreate => 1,
+                items    => \@items
+            }
+        );
+    }
+    else {
+        print "  No noid for collection slug=$slug\n";
+    }
 }
 
 sub updateDMD {
-	my ($collection) = @_;
-	my $noid=$collection->{'_id'};
+    my ($collection) = @_;
+    my $noid = $collection->{'_id'};
 
-	my $slug=getSlugFromNoid($noid);
-	if(!$slug) {
-		print "Couldn't find slug for $noid in updateDMD\n";
-		# Transition/testing -- delete outdated/invalid entry
-		$collection->{'_deleted'}=JSON::true;
-		$collection->{updated}=1;
-		return;
-	}
+    my $slug = getSlugFromNoid($noid);
+    if ( !$slug ) {
+        print "Couldn't find slug for $noid in updateDMD\n";
 
-	my $xml = XML::LibXML->new->parse_string(get_metadata($slug));
-	my $xpc=XML::LibXML::XPathContext->new;
+        # Transition/testing -- delete outdated/invalid entry
+        $collection->{'_deleted'} = JSON::true;
+        $collection->{updated} = 1;
+        return;
+    }
 
-	# Find the "physical" structMap (the only one that is in our current repository)
-	my @nodes = $xpc->findnodes("descendant::mets:structMap[\@TYPE=\"physical\"]",$xml);
-    if (scalar(@nodes) != 1) {
-        die "Found ".scalar(@nodes)." structMap(TYPE=physical) for noid=$noid\n";
-    }
-	my @divs = $xpc->findnodes('descendant::mets:div',$nodes[0]);
-	if (scalar(@divs) != 1) {
-        die "Found ".scalar(@divs)." descendents for noid=$noid\n";
-    }
-	my $dmdid=$divs[0]->getAttribute('DMDID');
-	if (!$dmdid) {
-		die "Missing DMDID for noid=$noid\n";
-	}
-	my @dmdsec=$xpc->findnodes("descendant::mets:dmdSec[\@ID=\"$dmdid\"]",$xml);
-    if (scalar(@dmdsec) != 1) {
-        die "Found ".scalar(@dmdsec)." dmdSec for ID=$dmdid\n";
-	}
-    my @md=$dmdsec[0]->nonBlankChildNodes();
-    if (scalar(@md) != 1) {
-        die "Found ".scalar(@md)." children for dmdSec ID=$dmdid\n";
-    }
-    my @types=split(/:/,$md[0]->nodeName);
-    my $type=pop(@types);
-	if ($type ne 'mdWrap') {
-		die "Found dmdSec child type $type, and we only support 'mdWrap'";
-	}
-	my $mdtype=$md[0]->getAttribute('MDTYPE');
-    if ($mdtype eq 'OTHER') {
-        $mdtype=$md[0]->getAttribute('OTHERMDTYPE');
-    }
-	my @mdrecords=$md[0]->nonBlankChildNodes();
-    if (scalar(@mdrecords) != 1) {
-        die "Found ".scalar(@mdrecords)." child dmdSec xmlData in ID=$dmdid\n";
-    }
-	my @records=$mdrecords[0]->nonBlankChildNodes();
-    if (scalar(@records) != 1) {
-        die "Found ".scalar(@records)." child dmdSec records in ID=$dmdid\n";
-    }
-	my $xmlrecord=$records[0]->toString(0);
-	my $dmdRecord=utf8::is_utf8($xmlrecord) ? Encode::encode_utf8($xmlrecord) : $xmlrecord;
-	my $dmdDigest=md5_hex($dmdRecord);
+    my $xml = XML::LibXML->new->parse_string( get_metadata($slug) );
+    my $xpc = XML::LibXML::XPathContext->new;
 
-	#print "noid=$noid slug=$slug DMDID=$dmdid mdtype=$mdtype dmdRecord length=".length($dmdRecord)."\n";
+# Find the "physical" structMap (the only one that is in our current repository)
+    my @nodes =
+      $xpc->findnodes( "descendant::mets:structMap[\@TYPE=\"physical\"]",
+        $xml );
+    if ( scalar(@nodes) != 1 ) {
+        die "Found "
+          . scalar(@nodes)
+          . " structMap(TYPE=physical) for noid=$noid\n";
+    }
+    my @divs = $xpc->findnodes( 'descendant::mets:div', $nodes[0] );
+    if ( scalar(@divs) != 1 ) {
+        die "Found " . scalar(@divs) . " descendents for noid=$noid\n";
+    }
+    my $dmdid = $divs[0]->getAttribute('DMDID');
+    if ( !$dmdid ) {
+        die "Missing DMDID for noid=$noid\n";
+    }
+    my @dmdsec =
+      $xpc->findnodes( "descendant::mets:dmdSec[\@ID=\"$dmdid\"]", $xml );
+    if ( scalar(@dmdsec) != 1 ) {
+        die "Found " . scalar(@dmdsec) . " dmdSec for ID=$dmdid\n";
+    }
+    my @md = $dmdsec[0]->nonBlankChildNodes();
+    if ( scalar(@md) != 1 ) {
+        die "Found " . scalar(@md) . " children for dmdSec ID=$dmdid\n";
+    }
+    my @types = split( /:/, $md[0]->nodeName );
+    my $type = pop(@types);
+    if ( $type ne 'mdWrap' ) {
+        die "Found dmdSec child type $type, and we only support 'mdWrap'";
+    }
+    my $mdtype = $md[0]->getAttribute('MDTYPE');
+    if ( $mdtype eq 'OTHER' ) {
+        $mdtype = $md[0]->getAttribute('OTHERMDTYPE');
+    }
+    my @mdrecords = $md[0]->nonBlankChildNodes();
+    if ( scalar(@mdrecords) != 1 ) {
+        die "Found "
+          . scalar(@mdrecords)
+          . " child dmdSec xmlData in ID=$dmdid\n";
+    }
+    my @records = $mdrecords[0]->nonBlankChildNodes();
+    if ( scalar(@records) != 1 ) {
+        die "Found "
+          . scalar(@records)
+          . " child dmdSec records in ID=$dmdid\n";
+    }
+    my $xmlrecord = $records[0]->toString(0);
+    my $dmdRecord =
+      utf8::is_utf8($xmlrecord) ? Encode::encode_utf8($xmlrecord) : $xmlrecord;
+    my $dmdDigest = md5_hex($dmdRecord);
 
-	my $mdtypel = lc($mdtype);
-	if ((!defined $collection->{dmdType} ) ||
-		$collection->{dmdType} ne $mdtypel) {
-			$collection->{dmdType} = $mdtypel;
-			$collection->{updated}=1;
-		}
+#print "noid=$noid slug=$slug DMDID=$dmdid mdtype=$mdtype dmdRecord length=".length($dmdRecord)."\n";
 
-	my $object="$noid/dmd$mdtype.xml";
-	my $r = $swift->object_head($access_metadata,$object);
-	if ($r->code == 404 || ($r->etag ne $dmdDigest)) {
-		print "Put $object\n";
-		$r = $swift->object_put($access_metadata,$object,$dmdRecord);
-		if ($r->code != 201) {
-			warn "Failed writing $object - returned ".$r->code."\n";
-		}
-	} elsif ($r->code != 200) {
-		warn "Head for $object - returned ".$r->code."\n";
-	}
+    my $mdtypel = lc($mdtype);
+    if ( ( !defined $collection->{dmdType} )
+        || $collection->{dmdType} ne $mdtypel )
+    {
+        $collection->{dmdType} = $mdtypel;
+        $collection->{updated} = 1;
+    }
+
+    my $object = "$noid/dmd$mdtype.xml";
+    my $r = $swift->object_head( $access_metadata, $object );
+    if ( $r->code == 404 || ( $r->etag ne $dmdDigest ) ) {
+        print "Put $object\n";
+        $r = $swift->object_put( $access_metadata, $object, $dmdRecord );
+        if ( $r->code != 201 ) {
+            warn "Failed writing $object - returned " . $r->code . "\n";
+        }
+    }
+    elsif ( $r->code != 200 ) {
+        warn "Head for $object - returned " . $r->code . "\n";
+    }
 
 }
 
@@ -557,17 +624,19 @@ sub get_metadata {
     my ($aipid) = @_;
 
     # Will retry 3 times.
-    my $count=3;
+    my $count = 3;
 
-    my $object=$aipid."/data/sip/data/metadata.xml";
-    while ($count--) {
-        my $r = $swift->object_get($preservation_files,$object);
-        if ($r->code == 200) {
+    my $object = $aipid . "/data/sip/data/metadata.xml";
+    while ( $count-- ) {
+        my $r = $swift->object_get( $preservation_files, $object );
+        if ( $r->code == 200 ) {
             return $r->content;
-        } elsif ($r->code == 599) {
-            warn("Accessing $object returned code: " . $r->code."\n");
-        } else {
-			die("Accessing $object returned code: " . $r->code."\n");
+        }
+        elsif ( $r->code == 599 ) {
+            warn( "Accessing $object returned code: " . $r->code . "\n" );
+        }
+        else {
+            die( "Accessing $object returned code: " . $r->code . "\n" );
         }
     }
 }
@@ -575,291 +644,330 @@ sub get_metadata {
 sub postUpdates {
 
     # Post updates
-    my $dbupdate={ docs => [] };
+    my $dbupdate = { docs => [] };
 
-    foreach my $noidkey (keys %collectionentries) {
-		my $entry = $collectionentries{$noidkey};
+    foreach my $noidkey ( keys %collectionentries ) {
+        my $entry = $collectionentries{$noidkey};
 
-		if (! (keys %{$entry->{label}})) {
-			my $slug = getSlugFromNoid($noidkey);
-			if (!$slug) {
-				$slug="[unknown]";
-			}
-			print "No label for $noidkey slug=$slug\n";
-		}
+        if ( !( keys %{ $entry->{label} } ) ) {
+            my $slug = getSlugFromNoid($noidkey);
+            if ( !$slug ) {
+                $slug = "[unknown]";
+            }
+            print "No label for $noidkey slug=$slug\n";
+        }
 
-		if ($entry->{updated}) {
-	    	delete $entry->{updated};
-	    	$entry->{'_id'}=$noidkey;
-	    	push @{$dbupdate->{docs}}, $entry;
-		}
+        if ( $entry->{updated} ) {
+            delete $entry->{updated};
+            $entry->{'_id'} = $noidkey;
+            push @{ $dbupdate->{docs} }, $entry;
+        }
     }
 
-    print "Posting ".scalar(@{$dbupdate->{docs}})." collection updates.\n";
+    print "Posting "
+      . scalar( @{ $dbupdate->{docs} } )
+      . " collection updates.\n";
 
     $collection->type("application/json");
-    my $res = $collection->post("/".$collection->database."/_bulk_docs", $dbupdate, {deserializer => 'application/json'});
-    if ($res->code != 201) {
-		if (defined $res->response->content) {
-	    	warn $res->response->content."\n";
-		}
-		die "dbupdate of 'slug' return code: " . $res->code . "\n";
+    my $res = $collection->post( "/" . $collection->database . "/_bulk_docs",
+        $dbupdate, { deserializer => 'application/json' } );
+    if ( $res->code != 201 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die "dbupdate of 'slug' return code: " . $res->code . "\n";
     }
 
-    $dbupdate={ docs => [] };
+    $dbupdate = { docs => [] };
 
-    foreach my $slugkey (keys %slugentries) {
-		my $entry = $slugentries{$slugkey};
+    foreach my $slugkey ( keys %slugentries ) {
+        my $entry = $slugentries{$slugkey};
 
-		if ($entry->{updated}) {
-			delete $entry->{updated};
-			$entry->{'_id'}=$slugkey;
-			push @{$dbupdate->{docs}}, $entry;
-		}
+        if ( $entry->{updated} ) {
+            delete $entry->{updated};
+            $entry->{'_id'} = $slugkey;
+            push @{ $dbupdate->{docs} }, $entry;
+        }
     }
 
-    print "Posting ".scalar(@{$dbupdate->{docs}})." slug updates.\n";
+    print "Posting " . scalar( @{ $dbupdate->{docs} } ) . " slug updates.\n";
 
     $slugdb->type("application/json");
-    $res = $slugdb->post("/".$slugdb->database."/_bulk_docs", $dbupdate, {deserializer => 'application/json'});
-    if ($res->code != 201) {
-		if (defined $res->response->content) {
-			warn $res->response->content."\n";
-		}
-		die "dbupdate of 'slug' return code: " . $res->code . "\n";
+    $res = $slugdb->post( "/" . $slugdb->database . "/_bulk_docs",
+        $dbupdate, { deserializer => 'application/json' } );
+    if ( $res->code != 201 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die "dbupdate of 'slug' return code: " . $res->code . "\n";
     }
 }
 
-
 sub isLabelEqual {
-	my ($oldlabel,$newlabel) = @_;
+    my ( $oldlabel, $newlabel ) = @_;
 
-	# First compare keys
-	return 0 if (join("\0",sort(keys %{$oldlabel})) ne join("\0",sort(keys %{$newlabel})));
+    # First compare keys
+    return 0
+      if (
+        join( "\0", sort( keys %{$oldlabel} ) ) ne
+        join( "\0", sort( keys %{$newlabel} ) ) );
 
-	# For now, if keys are the same we'll consider equal as we don't expect to need to handle the strings changing.
-	return 1;
+# For now, if keys are the same we'll consider equal as we don't expect to need to handle the strings changing.
+    return 1;
 }
 
 sub findCreateCollection {
     my ($args) = @_;
 
     die "Slug mandatory for findCreateCollection()\n"
-		if ! exists $args->{slug};
+      if !exists $args->{slug};
     my $slug = $args->{slug};
 
-	my $noid = getNoidFromSlug($slug);
-    if (!$noid) {
-		# If we've been asked not to create, then just exit without modification
-		if ($args->{nocreate}) {
-			return;
-		}
-		# Assign the newly minted noid
-		$noid = getCollectionNoid();
-		setNoidForSlug($slug,$noid);
-	}
+    my $noid = getNoidFromSlug($slug);
+    if ( !$noid ) {
 
-	# Clear old entry if exists
-	if (exists $collectionentries{$noid}{collections}) {
-		delete $collectionentries{$noid}{collections};
-		$collectionentries{$noid}{updated}=1;
-	}
+        # If we've been asked not to create, then just exit without modification
+        if ( $args->{nocreate} ) {
+            return;
+        }
 
-	# Ensure that items is at least empty
-	if (ref $collectionentries{$noid}{items} ne ref []) {
-		$collectionentries{$noid}{items}=[];
-		$collectionentries{$noid}{updated}=1;
-	}
-	# Appending primarily used for unordered collections
-    if (exists $args->{items}) {
-		# Append any missing items
-		my $lc = List::Compare->new($args->{items},$collectionentries{$noid}{items});
-		my @toadd = $lc->get_Lonly;
-		if (@toadd ) {
-			push @{$collectionentries{$noid}{items}} , @toadd;
-			$collectionentries{$noid}{updated}=1;
-		}
-    }
-	# Replacing used for ordered collections.
-    if (exists $args->{oitems}) {
-		# oitems replaces items (as they are assumed ordered and complete)
-		@{$collectionentries{$noid}{items}}=@{$args->{oitems}};
-		$collectionentries{$noid}{updated}=1;
+        # Assign the newly minted noid
+        $noid = getCollectionNoid();
+        setNoidForSlug( $slug, $noid );
     }
 
-	if (ref $collectionentries{$noid}{label} ne ref {}) {
-		$collectionentries{$noid}{label}={};
-		$collectionentries{$noid}{updated}=1;
-	}
-    if (defined $args->{label} &&
-			(! isLabelEqual($collectionentries{$noid}{label},$args->{label})))
-	{
-		$collectionentries{$noid}{label}=$args->{label};
-		$collectionentries{$noid}{updated}=1;
-	}
-
-
-    if (exists $args->{public}) {
-		if (($args->{public}) &&
-		    !exists $collectionentries{$noid}{public}) {
-	    	$collectionentries{$noid}{public}=DateTime->now()->iso8601().'Z';
-	    	$collectionentries{$noid}{updated}=1;
-		}
-		if (!($args->{public}) &&
-	    	exists $collectionentries{$noid}{public}) {
-	    	delete $collectionentries{$noid}{public};
-	    	$collectionentries{$noid}{updated}=1;
-		}
+    # Clear old entry if exists
+    if ( exists $collectionentries{$noid}{collections} ) {
+        delete $collectionentries{$noid}{collections};
+        $collectionentries{$noid}{updated} = 1;
     }
 
-    if (exists $args->{ordered}) {
-		if (($args->{ordered}) &&
-	    	!$collectionentries{$noid}{ordered}) {
-	    	$collectionentries{$noid}{ordered}=JSON::true;
-	    	$collectionentries{$noid}{updated}=1;
-		}
-		if (!($args->{ordered}) && (
-		 (!(defined $collectionentries{$noid}{ordered}) || $collectionentries{$noid}{ordered}))) {
-	    	$collectionentries{$noid}{ordered}=JSON::false;
-	    	$collectionentries{$noid}{updated}=1;
-		}
+    # Ensure that items is at least empty
+    if ( ref $collectionentries{$noid}{items} ne ref [] ) {
+        $collectionentries{$noid}{items}   = [];
+        $collectionentries{$noid}{updated} = 1;
     }
-    
+
+    # Appending primarily used for unordered collections
+    if ( exists $args->{items} ) {
+
+        # Append any missing items
+        my $lc = List::Compare->new( $args->{items},
+            $collectionentries{$noid}{items} );
+        my @toadd = $lc->get_Lonly;
+        if (@toadd) {
+            push @{ $collectionentries{$noid}{items} }, @toadd;
+            $collectionentries{$noid}{updated} = 1;
+        }
+    }
+
+    # Replacing used for ordered collections.
+    if ( exists $args->{oitems} ) {
+
+        # oitems replaces items (as they are assumed ordered and complete)
+        @{ $collectionentries{$noid}{items} } = @{ $args->{oitems} };
+        $collectionentries{$noid}{updated} = 1;
+    }
+
+    if ( ref $collectionentries{$noid}{label} ne ref {} ) {
+        $collectionentries{$noid}{label}   = {};
+        $collectionentries{$noid}{updated} = 1;
+    }
+    if ( defined $args->{label}
+        && ( !isLabelEqual( $collectionentries{$noid}{label}, $args->{label} ) )
+      )
+    {
+        $collectionentries{$noid}{label}   = $args->{label};
+        $collectionentries{$noid}{updated} = 1;
+    }
+
+    if ( exists $args->{public} ) {
+        if ( ( $args->{public} )
+            && !exists $collectionentries{$noid}{public} )
+        {
+            $collectionentries{$noid}{public} =
+              DateTime->now()->iso8601() . 'Z';
+            $collectionentries{$noid}{updated} = 1;
+        }
+        if ( !( $args->{public} )
+            && exists $collectionentries{$noid}{public} )
+        {
+            delete $collectionentries{$noid}{public};
+            $collectionentries{$noid}{updated} = 1;
+        }
+    }
+
+    if ( exists $args->{ordered} ) {
+        if ( ( $args->{ordered} )
+            && !$collectionentries{$noid}{ordered} )
+        {
+            $collectionentries{$noid}{ordered} = JSON::true;
+            $collectionentries{$noid}{updated} = 1;
+        }
+        if (
+            !( $args->{ordered} )
+            && (
+                (
+                    !( defined $collectionentries{$noid}{ordered} )
+                    || $collectionentries{$noid}{ordered}
+                )
+            )
+          )
+        {
+            $collectionentries{$noid}{ordered} = JSON::false;
+            $collectionentries{$noid}{updated} = 1;
+        }
+    }
+
     return $noid;
 }
 
-
-
 # Hitting the server too hard was causing 500 errors
 sub getCollectionNoid {
-    if (!@colNoids) {
-		my $res = $noidsrv->post("/mint/100/collection", {}, {deserializer => 'application/json'});
-		if ($res->code != 200) {
-	    	die "Fail communicating with noid server: " . $res->code . "\n";
-		}
-		push @colNoids, @{$res->data->{ids}};
+    if ( !@colNoids ) {
+        my $res = $noidsrv->post( "/mint/100/collection", {},
+            { deserializer => 'application/json' } );
+        if ( $res->code != 200 ) {
+            die "Fail communicating with noid server: " . $res->code . "\n";
+        }
+        push @colNoids, @{ $res->data->{ids} };
     }
     return pop @colNoids;
 }
 
 sub getNoidFromSlug {
-	my ($slug) = @_;
+    my ($slug) = @_;
 
-	return $slugentries{$slug}{noid} if exists $slugentries{$slug};
+    return $slugentries{$slug}{noid} if exists $slugentries{$slug};
 }
 
 sub getEntryFromSlug {
-	my ($slug) = @_;
+    my ($slug) = @_;
 
-	return $slugentries{$slug};
+    return $slugentries{$slug};
 }
-
-
 
 #  Hash must be initialized whenever updates made to slugentries
 sub initSlugFromNoid {
-	%slugfromnoid = map {
-		if (exists $slugentries{$_}{noid}) {
-			$slugentries{$_}{noid} => $_;
-		}
-	} keys %slugentries;
+    %slugfromnoid = map {
+        if ( exists $slugentries{$_}{noid} ) {
+            $slugentries{$_}{noid} => $_;
+        }
+    } keys %slugentries;
 }
-sub getSlugFromNoid {
-	my ($noid) = @_;
 
-	return $slugfromnoid{$noid};
+sub getSlugFromNoid {
+    my ($noid) = @_;
+
+    return $slugfromnoid{$noid};
 }
 
 sub setNoidForSlug {
-	my ($slug,$noid) = @_;
+    my ( $slug, $noid ) = @_;
 
-	# For the one-time copy, there shouldn't be duplicates!
-	if (exists $slugentries{$slug} &&
-	    $slugentries{$slug}{noid} ne $noid )
-	{
-		print "Noid already set noid=".$slugentries{$slug}{noid}." for slug=$slug noid=$noid\n"
-	}
+    # For the one-time copy, there shouldn't be duplicates!
+    if ( exists $slugentries{$slug}
+        && $slugentries{$slug}{noid} ne $noid )
+    {
+        print "Noid already set noid="
+          . $slugentries{$slug}{noid}
+          . " for slug=$slug noid=$noid\n";
+    }
 
-
-	if ((! exists $slugentries{$slug}) ||
-	    $slugentries{$slug}{noid} ne $noid )
-	{
-		$slugentries{$slug}{noid} = $noid;
-		$slugentries{$slug}{type} = 'collection';
-		$slugentries{$slug}{updated}=1;
-	}
+    if ( ( !exists $slugentries{$slug} )
+        || $slugentries{$slug}{noid} ne $noid )
+    {
+        $slugentries{$slug}{noid}    = $noid;
+        $slugentries{$slug}{type}    = 'collection';
+        $slugentries{$slug}{updated} = 1;
+    }
 }
 
 sub validateRecords {
-	print "Validating records...\n";
-    foreach my $noidkey (keys %collectionentries) {
-		validateRecord('collection',$collectionentries{$noidkey});
+    print "Validating records...\n";
+    foreach my $noidkey ( keys %collectionentries ) {
+        validateRecord( 'collection', $collectionentries{$noidkey} );
     }
-    foreach my $slugkey (keys %slugentries) {
-		validateRecord('slug',$slugentries{$slugkey});
-	}
+    foreach my $slugkey ( keys %slugentries ) {
+        validateRecord( 'slug', $slugentries{$slugkey} );
+    }
 }
 
-
 sub validateRecord {
-	my ($type,$record) = @_;
+    my ( $type, $record ) = @_;
 
-	local $CWD = "/home/tdr/Databases";
-	my $tempname = "/tmp/loadseriesvalidate.json";
+    local $CWD = "/home/tdr/Databases";
+    my $tempname = "/tmp/loadseriesvalidate.json";
 
-	open(FH, '>', $tempname) or die $!;
-	print FH encode_json($record);
-	close(FH);
+    open( FH, '>', $tempname ) or die $!;
+    print FH encode_json($record);
+    close(FH);
 
-	my $results;
-	open(FH,"node ./test.js -s schemas/$type.json -f $tempname |") or die $!;
-	{
-		local $/;
-		$results = <FH>;
-	}
-	close (FH);
-	chomp($results);
-	if ($results ne "You did it.") {
-		my $slug = getSlugFromNoid($record->{'_id'});
-		print "Validation failure for type=$type slug=$slug :\n" . Data::Dumper->Dump([$record,$results],[qw(Record Result)])."\n";
-	}
+    my $results;
+    open( FH, "node ./test.js -s schemas/$type.json -f $tempname |" ) or die $!;
+    {
+        local $/;
+        $results = <FH>;
+    }
+    close(FH);
+    chomp($results);
+    if ( $results ne "You did it." ) {
+        my $slug = getSlugFromNoid( $record->{'_id'} );
+        print "Validation failure for type=$type slug=$slug :\n"
+          . Data::Dumper->Dump( [ $record, $results ], [qw(Record Result)] )
+          . "\n";
+    }
 }
 
 sub checkTags {
 
-	print "Checking tags...\n";
+    print "Checking tags...\n";
 
-	# Hash of tags (keys are tags).
-	my %tags;
+    # Hash of tags (keys are tags).
+    my %tags;
 
-	$internalmeta->type("application/json");
-	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/colpages?reduce=true&group_level=1", {}, {deserializer => 'application/json'});
-	if ($res->code != 200) {
-		die "colpages return code: " . $res->code . "\n";
-		}
-	foreach my $thistag (@{$res->data->{rows}}) {
-		$tags{$thistag->{key}}=1;
-	};
-	$res = $internalmeta->get("/".$internalmeta->{database}."/_design/tdr/_view/coltitles?reduce=true&group_level=1", {}, {deserializer => 'application/json'});
-	if ($res->code != 200) {
-		die "coltitles return code: " . $res->code . "\n";
-	}
-	foreach my $thistag (@{$res->data->{rows}}) {
-		$tags{$thistag->{key}}=1;
-	};
+    $internalmeta->type("application/json");
+    $res = $internalmeta->get(
+        "/"
+          . $internalmeta->{database}
+          . "/_design/tdr/_view/colpages?reduce=true&group_level=1",
+        {},
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 200 ) {
+        die "colpages return code: " . $res->code . "\n";
+    }
+    foreach my $thistag ( @{ $res->data->{rows} } ) {
+        $tags{ $thistag->{key} } = 1;
+    }
+    $res = $internalmeta->get(
+        "/"
+          . $internalmeta->{database}
+          . "/_design/tdr/_view/coltitles?reduce=true&group_level=1",
+        {},
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 200 ) {
+        die "coltitles return code: " . $res->code . "\n";
+    }
+    foreach my $thistag ( @{ $res->data->{rows} } ) {
+        $tags{ $thistag->{key} } = 1;
+    }
 
-	delete $tags{'[none]'};
+    delete $tags{'[none]'};
 
-	my @missing;
-	foreach my $thistag (keys %tags) {
-		if (! getNoidFromSlug($thistag)) {
-			push @missing,$thistag;
-		};
-	}
+    my @missing;
+    foreach my $thistag ( keys %tags ) {
+        if ( !getNoidFromSlug($thistag) ) {
+            push @missing, $thistag;
+        }
+    }
 
-	if (@missing) {
-		print "The following tags are missing from collections: ". join(' , ',@missing)."\n";
-	} else {
-		print "No missing tag collection\n";
-	}
+    if (@missing) {
+        print "The following tags are missing from collections: "
+          . join( ' , ', @missing ) . "\n";
+    }
+    else {
+        print "No missing tag collection\n";
+    }
 }

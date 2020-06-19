@@ -9,7 +9,6 @@ use Moo;
 with 'Role::REST::Client';
 use Types::Standard qw(HashRef Str Int Enum HasMethods);
 
-
 =head1 NAME
 
 CIHM::Meta::REST::copresentation - Subclass of Role::REST::Client used to
@@ -56,19 +55,21 @@ sub database {
 =cut
 
 sub update_basic {
-  my ($self, $uid, $updatedoc) = @_;
-  my ($res, $code, $data);
+    my ( $self, $uid, $updatedoc ) = @_;
+    my ( $res, $code, $data );
 
-  # This encoding makes $updatedoc variables available as form data
-  $self->type("application/x-www-form-urlencoded");
-  $res = $self->post("/".$self->database."/_design/tdr/_update/basic/".$uid, $updatedoc, {deserializer => 'application/json'});
+    # This encoding makes $updatedoc variables available as form data
+    $self->type("application/x-www-form-urlencoded");
+    $res =
+      $self->post( "/" . $self->database . "/_design/tdr/_update/basic/" . $uid,
+        $updatedoc, { deserializer => 'application/json' } );
 
-  if ($res->code != 201 && $res->code != 200) {
-      warn "_update/basic/$uid POST return code: " . $res->code . "\n";
-  }
-  if ($res->data) {
-      return $res->data->{return};
-  }
+    if ( $res->code != 201 && $res->code != 200 ) {
+        warn "_update/basic/$uid POST return code: " . $res->code . "\n";
+    }
+    if ( $res->data ) {
+        return $res->data->{return};
+    }
 }
 
 1;

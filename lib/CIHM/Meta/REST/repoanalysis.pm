@@ -10,7 +10,6 @@ use Moo;
 with 'Role::REST::Client';
 use Types::Standard qw(HashRef Str Int Enum HasMethods);
 
-
 =head1 NAME
 
 CIHM::Meta::REST::repoanalysis - Subclass of Role::REST::Client used to
@@ -32,7 +31,7 @@ sub BUILD {
 
     $self->{LocalTZ} = DateTime::TimeZone->new( name => 'local' );
     $self->{database} = $args->{database};
-    $self->set_persistent_header('Accept' => 'application/json');
+    $self->set_persistent_header( 'Accept' => 'application/json' );
 }
 
 # Simple accessors for now -- Do I want to Moo?
@@ -59,29 +58,31 @@ sub database {
 
 # Returns the full return object
 sub update_basic_full {
-  my ($self, $uid, $updatedoc) = @_;
-  my ($res, $code, $data);
+    my ( $self, $uid, $updatedoc ) = @_;
+    my ( $res, $code, $data );
 
+# Special case, rather than modify the other update functions to not encode values as json strings.
+    my %newdoc = (
+        'repos'        => decode_json( $updatedoc->{repos} ),
+        'manifestdate' => $updatedoc->{manifestdate}
+    );
 
-  # Special case, rather than modify the other update functions to not encode values as json strings.
-  my %newdoc = (
-      'repos' => decode_json($updatedoc->{repos}),
-      'manifestdate' => $updatedoc->{manifestdate}
-      );
+    if ( exists $updatedoc->{METS} ) {
+        $newdoc{METS} = decode_json( $updatedoc->{METS} );
+    }
 
-  if (exists $updatedoc->{METS}) {
-      $newdoc{METS}= decode_json($updatedoc->{METS});
-  }
-  #  Post directly as JSON data (Different from other couch databases)
-  $self->type("application/json");
-  $res = $self->post("/".$self->{database}."/_design/ra/_update/basic/".$uid, \%newdoc,  {deserializer => 'application/json'});
+    #  Post directly as JSON data (Different from other couch databases)
+    $self->type("application/json");
+    $res = $self->post(
+        "/" . $self->{database} . "/_design/ra/_update/basic/" . $uid,
+        \%newdoc, { deserializer => 'application/json' } );
 
-  if ($res->code != 201 && $res->code != 200) {
-      warn "_update/basic/$uid POST return code: " . $res->code . "\n";
-  }
+    if ( $res->code != 201 && $res->code != 200 ) {
+        warn "_update/basic/$uid POST return code: " . $res->code . "\n";
+    }
 
-  # _update function only returns a string and not data, so nothing to return here
-  return $res->data;
+# _update function only returns a string and not data, so nothing to return here
+    return $res->data;
 }
 
 1;

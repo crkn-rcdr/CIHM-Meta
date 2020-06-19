@@ -225,8 +225,8 @@ sub localdocument {
 sub reposync {
     my ($self) = @_;
 
-    $self->log->info(
-        "Synchronizing \"tdrepo\" data to: " . join ',', @{$self->dbnames});
+    $self->log->info( "Synchronizing \"tdrepo\" data to: " . join ',',
+        @{ $self->dbnames } );
 
     my $newestaips = $self->tdrepo->get_newestaip(
         {

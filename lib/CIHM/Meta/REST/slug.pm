@@ -10,7 +10,6 @@ use Moo;
 with 'Role::REST::Client';
 use Types::Standard qw(HashRef Str Int Enum HasMethods);
 
-
 =head1 NAME
 
 CIHM::Meta::REST::slug - Subclass of Role::REST::Client used to
@@ -32,7 +31,7 @@ sub BUILD {
 
     $self->{LocalTZ} = DateTime::TimeZone->new( name => 'local' );
     $self->{database} = $args->{database};
-    $self->set_persistent_header('Accept' => 'application/json');
+    $self->set_persistent_header( 'Accept' => 'application/json' );
 }
 
 # Simple accessors for now -- Do I want to Moo?
