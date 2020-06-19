@@ -7,6 +7,7 @@ use Getopt::Long;
 use Config::General;
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::manifest;
 use CIHM::Meta::REST::slug;
 use XML::LibXML;
 use CIHM::Swift::Client;
@@ -149,6 +150,21 @@ else {
     die "Missing <slug> configuration block in config\n";
 }
 
+# Undefined if no <manifest> config block
+my $manifestdb;
+if ( exists $confighash{manifest} ) {
+    $manifestdb = new CIHM::Meta::REST::manifest(
+        server      => $confighash{manifest}{server},
+        database    => $confighash{manifest}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <manifest> configuration block in config\n";
+}
+
 # Undefined if no <internalmeta> config block
 my $internalmeta;
 if ( exists $confighash{internalmeta} ) {
@@ -219,27 +235,31 @@ else {
 
 # Building the collections
 
-## Load existing 'slug' entries
-print "Load slugs...\n";
+## Load existing manifest 'slug' entries
+print "Load manifest slugs...\n";
 my %slugfromnoid;
-my %slugentries;
-$res = $slugdb->get( "/" . $slugdb->database . "/_all_docs?include_docs=true",
+my %noidfromslug;
+$res =
+  $manifestdb->get( "/" . $manifestdb->database . "/_design/access/_view/slug",
     {}, { deserializer => 'application/json' } );
 if ( $res->code != 200 ) {
     if ( defined $res->response->content ) {
         warn $res->response->content . "\n";
     }
-    die "slug/_all_docs return code: " . $res->code . "\n";
+    die "/_design/access/_view/slug return code: " . $res->code . "\n";
 }
 foreach my $slugentry ( @{ $res->data->{rows} } ) {
     if ( substr( $slugentry->{key}, 0, 8 ) ne '_design/' ) {
-        %{ $slugentries{ $slugentry->{key} } } = %{ $slugentry->{doc} };
+        $noidfromslug{ $slugentry->{key} } = $slugentry->{id};
     }
 }
+
+%noidfromslug = ();
 
 ## Load existing 'collection' entries
 print "Load existing 'collection' entries...\n";
 my %collectionentries;
+
 $res = $collection->get(
     "/" . $collection->database . "/_all_docs?include_docs=true",
     {}, { deserializer => 'application/json' } );
@@ -252,14 +272,36 @@ if ( $res->code != 200 ) {
 foreach my $collection ( @{ $res->data->{rows} } ) {
     if ( substr( $collection->{key}, 0, 8 ) ne '_design/' ) {
         my $noid = $collection->{key};
+        my $slug = $collection->{doc}->{slug};
         %{ $collectionentries{$noid} } = %{ $collection->{doc} };
+        $noidfromslug{ $collection->{doc}->{slug} } = $noid
+          if defined $collection->{doc}->{slug};
+    }
+}
 
-        # Transition/testing
-        if ( exists $collectionentries{$noid}{slug} ) {
-            setNoidForSlug( $collectionentries{$noid}{slug}, $noid );
-            delete $collectionentries{$noid}{slug};
-            $collectionentries{$noid}{updated} = 1;
-        }
+## Load existing 'slug' entries
+print "Load legacy slugs into collections...\n";
+$res = $slugdb->get( "/" . $slugdb->database . "/_all_docs?include_docs=true",
+    {}, { deserializer => 'application/json' } );
+if ( $res->code != 200 ) {
+    if ( defined $res->response->content ) {
+        warn $res->response->content . "\n";
+    }
+    die "slug/_all_docs return code: " . $res->code . "\n";
+}
+foreach my $slugentry ( @{ $res->data->{rows} } ) {
+    my $slug = $slugentry->{'id'};
+    my $noid = $slugentry->{'doc'}->{'noid'};
+    if (
+           defined $noid
+        && defined $collectionentries{$noid}
+        && (  !( defined $collectionentries{$noid}{slug} )
+            || ( $collectionentries{$noid}{slug} ne $slug ) )
+      )
+    {
+        $collectionentries{$noid}{slug}    = $slug;
+        $collectionentries{$noid}{updated} = 1;
+        $noidfromslug{$slug}               = $noid;
     }
 }
 
@@ -437,6 +479,7 @@ if ( !$noupdatedmd ) {
             updateDMD( $collectionentries{$noid} );
         }
     }
+
     postUpdates();
 }
 
@@ -668,32 +711,11 @@ sub postUpdates {
       . scalar( @{ $dbupdate->{docs} } )
       . " collection updates.\n";
 
+    print Dumper ($dbupdate);
+    return;
+
     $collection->type("application/json");
     my $res = $collection->post( "/" . $collection->database . "/_bulk_docs",
-        $dbupdate, { deserializer => 'application/json' } );
-    if ( $res->code != 201 ) {
-        if ( defined $res->response->content ) {
-            warn $res->response->content . "\n";
-        }
-        die "dbupdate of 'slug' return code: " . $res->code . "\n";
-    }
-
-    $dbupdate = { docs => [] };
-
-    foreach my $slugkey ( keys %slugentries ) {
-        my $entry = $slugentries{$slugkey};
-
-        if ( $entry->{updated} ) {
-            delete $entry->{updated};
-            $entry->{'_id'} = $slugkey;
-            push @{ $dbupdate->{docs} }, $entry;
-        }
-    }
-
-    print "Posting " . scalar( @{ $dbupdate->{docs} } ) . " slug updates.\n";
-
-    $slugdb->type("application/json");
-    $res = $slugdb->post( "/" . $slugdb->database . "/_bulk_docs",
         $dbupdate, { deserializer => 'application/json' } );
     if ( $res->code != 201 ) {
         if ( defined $res->response->content ) {
@@ -733,7 +755,14 @@ sub findCreateCollection {
 
         # Assign the newly minted noid
         $noid = getCollectionNoid();
-        setNoidForSlug( $slug, $noid );
+    }
+
+    if (  !( defined $collectionentries{$noid}{slug} )
+        || ( $collectionentries{$noid}{slug} ne $slug ) )
+    {
+        $collectionentries{$noid}{slug}    = $slug;
+        $collectionentries{$noid}{updated} = 1;
+        $noidfromslug{$slug}               = $noid;
     }
 
     # Clear old entry if exists
@@ -838,22 +867,12 @@ sub getCollectionNoid {
 sub getNoidFromSlug {
     my ($slug) = @_;
 
-    return $slugentries{$slug}{noid} if exists $slugentries{$slug};
-}
-
-sub getEntryFromSlug {
-    my ($slug) = @_;
-
-    return $slugentries{$slug};
+    return $noidfromslug{$slug};
 }
 
 #  Hash must be initialized whenever updates made to slugentries
 sub initSlugFromNoid {
-    %slugfromnoid = map {
-        if ( exists $slugentries{$_}{noid} ) {
-            $slugentries{$_}{noid} => $_;
-        }
-    } keys %slugentries;
+    %slugfromnoid = map { $noidfromslug{$_} => $_; } keys %noidfromslug;
 }
 
 sub getSlugFromNoid {
@@ -862,34 +881,10 @@ sub getSlugFromNoid {
     return $slugfromnoid{$noid};
 }
 
-sub setNoidForSlug {
-    my ( $slug, $noid ) = @_;
-
-    # For the one-time copy, there shouldn't be duplicates!
-    if ( exists $slugentries{$slug}
-        && $slugentries{$slug}{noid} ne $noid )
-    {
-        print "Noid already set noid="
-          . $slugentries{$slug}{noid}
-          . " for slug=$slug noid=$noid\n";
-    }
-
-    if ( ( !exists $slugentries{$slug} )
-        || $slugentries{$slug}{noid} ne $noid )
-    {
-        $slugentries{$slug}{noid}    = $noid;
-        $slugentries{$slug}{type}    = 'collection';
-        $slugentries{$slug}{updated} = 1;
-    }
-}
-
 sub validateRecords {
     print "Validating records...\n";
     foreach my $noidkey ( keys %collectionentries ) {
         validateRecord( 'collection', $collectionentries{$noidkey} );
-    }
-    foreach my $slugkey ( keys %slugentries ) {
-        validateRecord( 'slug', $slugentries{$slugkey} );
     }
 }
 
