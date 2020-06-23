@@ -254,8 +254,6 @@ foreach my $slugentry ( @{ $res->data->{rows} } ) {
     }
 }
 
-%noidfromslug = ();
-
 ## Load existing 'collection' entries
 print "Load existing 'collection' entries...\n";
 my %collectionentries;
@@ -374,8 +372,6 @@ until ($changenothing) {
         }
     }
 }
-
-# print "Parent Collections:\n" . Dumper(\%parentcollection);
 
 # Clean up unused hash
 undef %capcols;
@@ -553,7 +549,7 @@ sub updateCollectionItems {
                 push @items, $itemnoid;
             }
             else {
-                print "  No noid for AIPID=$itemslug\n";
+                print "  No noid for collection member AIPID=$itemslug\n";
             }
         }
         findCreateCollection(
@@ -711,9 +707,6 @@ sub postUpdates {
       . scalar( @{ $dbupdate->{docs} } )
       . " collection updates.\n";
 
-    print Dumper ($dbupdate);
-    return;
-
     $collection->type("application/json");
     my $res = $collection->post( "/" . $collection->database . "/_bulk_docs",
         $dbupdate, { deserializer => 'application/json' } );
@@ -721,7 +714,7 @@ sub postUpdates {
         if ( defined $res->response->content ) {
             warn $res->response->content . "\n";
         }
-        die "dbupdate of 'slug' return code: " . $res->code . "\n";
+        die "dbupdate of 'collection' return code: " . $res->code . "\n";
     }
 }
 
