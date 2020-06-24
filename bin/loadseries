@@ -29,6 +29,7 @@ use File::chdir;
 my $conf = "/etc/canadiana/tdr/tdr.conf";
 my $nocapcol;
 my $noseries;
+my $nopost;
 my $nomanifests;
 my $noupdatedmd;
 my $validate;
@@ -39,6 +40,7 @@ GetOptions(
     'conf:s'      => \$conf,
     'nocapcol'    => \$nocapcol,
     'noseries'    => \$noseries,
+    'nopost'      => \$nopost,
     'nomanifests' => \$nomanifests,
     'noupdatedmd' => \$noupdatedmd,
     'validate'    => \$validate,
@@ -274,6 +276,13 @@ foreach my $collection ( @{ $res->data->{rows} } ) {
         %{ $collectionentries{$noid} } = %{ $collection->{doc} };
         $noidfromslug{ $collection->{doc}->{slug} } = $noid
           if defined $collection->{doc}->{slug};
+        if ( scalar( @{ $collectionentries{$noid}{items} } )
+            && ref @{ $collectionentries{$noid}{items} }[0] ne 'HASH' )
+        {
+            @{ $collectionentries{$noid}{items} } =
+              listToId( @{ $collectionentries{$noid}{items} } );
+            $collectionentries{$noid}{updated} = 1;
+        }
     }
 }
 
@@ -703,6 +712,13 @@ sub postUpdates {
         }
     }
 
+    if ($nopost) {
+        print "Would have posted "
+          . scalar( @{ $dbupdate->{docs} } )
+          . " collection updates.\n";
+        return;
+    }
+
     print "Posting "
       . scalar( @{ $dbupdate->{docs} } )
       . " collection updates.\n";
@@ -774,11 +790,11 @@ sub findCreateCollection {
     if ( exists $args->{items} ) {
 
         # Append any missing items
-        my $lc = List::Compare->new( $args->{items},
-            $collectionentries{$noid}{items} );
+        my @items = idToList( @{ $collectionentries{$noid}{items} } );
+        my $lc    = List::Compare->new( $args->{items}, \@items );
         my @toadd = $lc->get_Lonly;
         if (@toadd) {
-            push @{ $collectionentries{$noid}{items} }, @toadd;
+            push @{ $collectionentries{$noid}{items} }, listToId(@toadd);
             $collectionentries{$noid}{updated} = 1;
         }
     }
@@ -787,7 +803,8 @@ sub findCreateCollection {
     if ( exists $args->{oitems} ) {
 
         # oitems replaces items (as they are assumed ordered and complete)
-        @{ $collectionentries{$noid}{items} } = @{ $args->{oitems} };
+        @{ $collectionentries{$noid}{items} } =
+          listToId( @{ $args->{oitems} } );
         $collectionentries{$noid}{updated} = 1;
     }
 
@@ -958,4 +975,20 @@ sub checkTags {
     else {
         print "No missing tag collection\n";
     }
+}
+
+sub listToId {
+    my @idlist;
+    foreach (@_) {
+        push @idlist, { id => $_ };
+    }
+    return @idlist;
+}
+
+sub idToList {
+    my @list;
+    foreach (@_) {
+        push @list, $_->{id};
+    }
+    return @list;
 }
