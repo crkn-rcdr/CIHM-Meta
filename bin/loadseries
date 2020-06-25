@@ -778,8 +778,8 @@ sub findCreateCollection {
     {
         $collectionentries{$noid}{slug}    = $slug;
         $collectionentries{$noid}{updated} = 1;
+        $noidfromslug{$slug}               = $noid;
         print " $collectionentries{$noid}{slug} ne $slug \n" if ($debug);
-        $noidfromslug{$slug} = $noid;
     }
 
     # Clear old entry if exists
