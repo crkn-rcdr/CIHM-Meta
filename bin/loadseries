@@ -35,6 +35,7 @@ my $noupdatedmd;
 my $validate;
 my $checktags;
 my $clearitems;
+my $debug;
 
 GetOptions(
     'conf:s'      => \$conf,
@@ -46,6 +47,7 @@ GetOptions(
     'validate'    => \$validate,
     'checktags'   => \$checktags,
     'clearitems'  => \$clearitems,
+    'debug'       => \$debug
 );
 
 my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
@@ -123,9 +125,9 @@ if ( !$nocapcol ) {
 }
 
 # Undefined if no <collection> config block
-my $collection;
+my $collectiondb;
 if ( exists $confighash{collection} ) {
-    $collection = new CIHM::Meta::REST::collection(
+    $collectiondb = new CIHM::Meta::REST::collection(
         server      => $confighash{collection}{server},
         database    => $confighash{collection}{database},
         type        => 'application/json',
@@ -260,8 +262,8 @@ foreach my $slugentry ( @{ $res->data->{rows} } ) {
 print "Load existing 'collection' entries...\n";
 my %collectionentries;
 
-$res = $collection->get(
-    "/" . $collection->database . "/_all_docs?include_docs=true",
+$res = $collectiondb->get(
+    "/" . $collectiondb->database . "/_all_docs?include_docs=true",
     {}, { deserializer => 'application/json' } );
 if ( $res->code != 200 ) {
     if ( defined $res->response->content ) {
@@ -282,6 +284,7 @@ foreach my $collection ( @{ $res->data->{rows} } ) {
             @{ $collectionentries{$noid}{items} } =
               listToId( @{ $collectionentries{$noid}{items} } );
             $collectionentries{$noid}{updated} = 1;
+            print "Noid=$noid items updated\n" if ($debug);
         }
     }
 }
@@ -309,6 +312,7 @@ foreach my $slugentry ( @{ $res->data->{rows} } ) {
         $collectionentries{$noid}{slug}    = $slug;
         $collectionentries{$noid}{updated} = 1;
         $noidfromslug{$slug}               = $noid;
+        print "$noid slug updated\n" if ($debug);
     }
 }
 
@@ -396,6 +400,7 @@ if ($clearitems) {
         {
             $collectionentries{$noid}{items}   = [];
             $collectionentries{$noid}{updated} = 1;
+            print "Clearitems $noid\n" if ($debug);
         }
     }
 }
@@ -481,7 +486,7 @@ if ( !$noupdatedmd ) {
 
 # Unordered means it is not a series, and thus we don't have DMD in the repository.
         if ( $collectionentries{$noid}{ordered} ) {
-            updateDMD( $collectionentries{$noid} );
+            updateDMD($noid);
         }
     }
 
@@ -575,16 +580,16 @@ sub updateCollectionItems {
 }
 
 sub updateDMD {
-    my ($collection) = @_;
-    my $noid = $collection->{'_id'};
+    my ($noid) = @_;
 
     my $slug = getSlugFromNoid($noid);
     if ( !$slug ) {
         print "Couldn't find slug for $noid in updateDMD\n";
 
         # Transition/testing -- delete outdated/invalid entry
-        $collection->{'_deleted'} = JSON::true;
-        $collection->{updated} = 1;
+        $collectionentries{$noid}{'_deleted'} = JSON::true;
+        $collectionentries{$noid}{updated} = 1;
+        print "updateDMD $noid\n" if ($debug);
         return;
     }
 
@@ -643,14 +648,15 @@ sub updateDMD {
       utf8::is_utf8($xmlrecord) ? Encode::encode_utf8($xmlrecord) : $xmlrecord;
     my $dmdDigest = md5_hex($dmdRecord);
 
-#print "noid=$noid slug=$slug DMDID=$dmdid mdtype=$mdtype dmdRecord length=".length($dmdRecord)."\n";
-
     my $mdtypel = lc($mdtype);
-    if ( ( !defined $collection->{dmdType} )
-        || $collection->{dmdType} ne $mdtypel )
+    if ( ( !defined $collectionentries{$noid}{dmdType} )
+        || $collectionentries{$noid}{dmdType} ne $mdtypel )
     {
-        $collection->{dmdType} = $mdtypel;
-        $collection->{updated} = 1;
+        print "mdtype updated $noid\n"
+          . Dumper( $collectionentries{$noid}{dmdType}, $mdtypel )
+          if ($debug);
+        $collectionentries{$noid}{dmdType} = $mdtypel;
+        $collectionentries{$noid}{updated} = 1;
     }
 
     my $object = "$noid/dmd$mdtype.xml";
@@ -723,8 +729,9 @@ sub postUpdates {
       . scalar( @{ $dbupdate->{docs} } )
       . " collection updates.\n";
 
-    $collection->type("application/json");
-    my $res = $collection->post( "/" . $collection->database . "/_bulk_docs",
+    $collectiondb->type("application/json");
+    my $res =
+      $collectiondb->post( "/" . $collectiondb->database . "/_bulk_docs",
         $dbupdate, { deserializer => 'application/json' } );
     if ( $res->code != 201 ) {
         if ( defined $res->response->content ) {
@@ -771,19 +778,22 @@ sub findCreateCollection {
     {
         $collectionentries{$noid}{slug}    = $slug;
         $collectionentries{$noid}{updated} = 1;
-        $noidfromslug{$slug}               = $noid;
+        print " $collectionentries{$noid}{slug} ne $slug \n" if ($debug);
+        $noidfromslug{$slug} = $noid;
     }
 
     # Clear old entry if exists
     if ( exists $collectionentries{$noid}{collections} ) {
         delete $collectionentries{$noid}{collections};
         $collectionentries{$noid}{updated} = 1;
+        print " delete $noid {collections} \n" if ($debug);
     }
 
     # Ensure that items is at least empty
     if ( ref $collectionentries{$noid}{items} ne ref [] ) {
         $collectionentries{$noid}{items}   = [];
         $collectionentries{$noid}{updated} = 1;
+        print "empty {items} $noid\n" if ($debug);
     }
 
     # Appending primarily used for unordered collections
@@ -796,21 +806,32 @@ sub findCreateCollection {
         if (@toadd) {
             push @{ $collectionentries{$noid}{items} }, listToId(@toadd);
             $collectionentries{$noid}{updated} = 1;
+            print "Some items to add:  @toadd   $noid\n" if ($debug);
         }
     }
 
     # Replacing used for ordered collections.
     if ( exists $args->{oitems} ) {
 
-        # oitems replaces items (as they are assumed ordered and complete)
-        @{ $collectionentries{$noid}{items} } =
-          listToId( @{ $args->{oitems} } );
-        $collectionentries{$noid}{updated} = 1;
+        my @items = idToList( @{ $collectionentries{$noid}{items} } );
+        my $lc = List::Compare->new( $args->{oitems}, \@items );
+
+        # This is equivalent, not equal
+        if ( !( $lc->is_LequivalentR() ) ) {
+
+            # oitems replaces items (as they are assumed ordered and complete)
+            @{ $collectionentries{$noid}{items} } =
+              listToId( @{ $args->{oitems} } );
+
+            $collectionentries{$noid}{updated} = 1;
+            print "Set oitems $noid\n" if ($debug);
+        }
     }
 
     if ( ref $collectionentries{$noid}{label} ne ref {} ) {
         $collectionentries{$noid}{label}   = {};
         $collectionentries{$noid}{updated} = 1;
+        print "Set {} label on $noid\n" if ($debug);
     }
     if ( defined $args->{label}
         && ( !isLabelEqual( $collectionentries{$noid}{label}, $args->{label} ) )
@@ -818,6 +839,7 @@ sub findCreateCollection {
     {
         $collectionentries{$noid}{label}   = $args->{label};
         $collectionentries{$noid}{updated} = 1;
+        print "Set label for $noid\n" if ($debug);
     }
 
     if ( exists $args->{public} ) {
@@ -827,12 +849,14 @@ sub findCreateCollection {
             $collectionentries{$noid}{public} =
               DateTime->now()->iso8601() . 'Z';
             $collectionentries{$noid}{updated} = 1;
+            print "Set public for $noid\n" if ($debug);
         }
         if ( !( $args->{public} )
             && exists $collectionentries{$noid}{public} )
         {
             delete $collectionentries{$noid}{public};
             $collectionentries{$noid}{updated} = 1;
+            print "remove public for $noid\n" if ($debug);
         }
     }
 
@@ -842,6 +866,7 @@ sub findCreateCollection {
         {
             $collectionentries{$noid}{ordered} = JSON::true;
             $collectionentries{$noid}{updated} = 1;
+            print "Set ordered for $noid\n" if ($debug);
         }
         if (
             !( $args->{ordered} )
@@ -855,6 +880,7 @@ sub findCreateCollection {
         {
             $collectionentries{$noid}{ordered} = JSON::false;
             $collectionentries{$noid}{updated} = 1;
+            print "Set unordered for $noid\n" if ($debug);
         }
     }
 
