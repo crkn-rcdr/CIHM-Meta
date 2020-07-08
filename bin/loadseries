@@ -8,7 +8,6 @@ use Config::General;
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::REST::collection;
 use CIHM::Meta::REST::manifest;
-use CIHM::Meta::REST::slug;
 use XML::LibXML;
 use CIHM::Swift::Client;
 use Data::Dumper;
@@ -16,7 +15,6 @@ use JSON;
 use DateTime;
 use List::Compare;
 use Digest::MD5 qw(md5 md5_hex md5_base64);
-use File::chdir;
 
 {
 
@@ -137,21 +135,6 @@ if ( exists $confighash{collection} ) {
 }
 else {
     die "Missing <collection> configuration block in config\n";
-}
-
-# Undefined if no <slug> config block
-my $slugdb;
-if ( exists $confighash{slug} ) {
-    $slugdb = new CIHM::Meta::REST::slug(
-        server      => $confighash{slug}{server},
-        database    => $confighash{slug}{database},
-        type        => 'application/json',
-        conf        => $conf,
-        clientattrs => { timeout => 36000 },
-    );
-}
-else {
-    die "Missing <slug> configuration block in config\n";
 }
 
 # Undefined if no <manifest> config block
@@ -286,33 +269,6 @@ foreach my $collection ( @{ $res->data->{rows} } ) {
             $collectionentries{$noid}{updated} = 1;
             print "Noid=$noid items updated\n" if ($debug);
         }
-    }
-}
-
-## Load existing 'slug' entries
-print "Load legacy slugs into collections...\n";
-$res = $slugdb->get( "/" . $slugdb->database . "/_all_docs?include_docs=true",
-    {}, { deserializer => 'application/json' } );
-if ( $res->code != 200 ) {
-    if ( defined $res->response->content ) {
-        warn $res->response->content . "\n";
-    }
-    die "slug/_all_docs return code: " . $res->code . "\n";
-}
-foreach my $slugentry ( @{ $res->data->{rows} } ) {
-    my $slug = $slugentry->{'id'};
-    my $noid = $slugentry->{'doc'}->{'noid'};
-    if (
-           defined $noid
-        && defined $collectionentries{$noid}
-        && (  !( defined $collectionentries{$noid}{slug} )
-            || ( $collectionentries{$noid}{slug} ne $slug ) )
-      )
-    {
-        $collectionentries{$noid}{slug}    = $slug;
-        $collectionentries{$noid}{updated} = 1;
-        $noidfromslug{$slug}               = $noid;
-        print "$noid slug updated\n" if ($debug);
     }
 }
 
@@ -925,9 +881,8 @@ sub validateRecords {
 }
 
 sub validateRecord {
-    my ( $type, $record ) = @_;
+    my ( $database, $record ) = @_;
 
-    local $CWD = "/home/tdr/Databases";
     my $tempname = "/tmp/loadseriesvalidate.json";
 
     open( FH, '>', $tempname ) or die $!;
@@ -935,16 +890,16 @@ sub validateRecord {
     close(FH);
 
     my $results;
-    open( FH, "node ./test.js -s schemas/$type.json -f $tempname |" ) or die $!;
+    open( FH, "kivik validate $tempname /home/tdr/Databases/$database/schema.json |" ) or die $!;
     {
         local $/;
         $results = <FH>;
     }
     close(FH);
     chomp($results);
-    if ( $results ne "You did it." ) {
+    if ( $results ne "Document is valid!" ) {
         my $slug = getSlugFromNoid( $record->{'_id'} );
-        print "Validation failure for type=$type slug=$slug :\n"
+        print "Validation failure for database=$database slug=$slug :\n"
           . Data::Dumper->Dump( [ $record, $results ], [qw(Record Result)] )
           . "\n";
     }
