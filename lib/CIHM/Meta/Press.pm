@@ -6,11 +6,11 @@ use Config::General;
 use Log::Log4perl;
 
 use CIHM::Meta::REST::internalmeta;
+use CIHM::Meta::REST::extrameta;
 use CIHM::Meta::REST::cosearch;
 use CIHM::Meta::REST::copresentation;
 use CIHM::Meta::Press::Process;
 use Try::Tiny;
-use Data::Dumper;
 use JSON;
 
 =head1 NAME
@@ -61,6 +61,20 @@ sub new {
         croak "Missing <internalmeta> configuration block in config\n";
     }
 
+    # Undefined if no <extrameta> config block
+    if ( exists $confighash{extrameta} ) {
+        $self->{extrameta} = new CIHM::Meta::REST::extrameta(
+            server      => $confighash{extrameta}{server},
+            database    => $confighash{extrameta}{database},
+            type        => 'application/json',
+            conf        => $self->configpath,
+            clientattrs => { timeout => 3600 }
+        );
+    }
+    else {
+        croak "Missing <extrameta> configuration block in config\n";
+    }
+
     # Undefined if no <cosearch> config block
     if ( exists $confighash{cosearch} ) {
         $self->{cosearch} = new CIHM::Meta::REST::cosearch(
@@ -86,7 +100,7 @@ sub new {
         );
     }
     else {
-        croak "Missing <internalmeta> configuration block in config\n";
+        croak "Missing <copresentation> configuration block in config\n";
     }
     return $self;
 }
@@ -115,6 +129,11 @@ sub log {
 sub internalmeta {
     my $self = shift;
     return $self->{internalmeta};
+}
+
+sub extrameta {
+    my $self = shift;
+    return $self->{extrameta};
 }
 
 sub cosearch {
@@ -170,6 +189,7 @@ sub Press {
                     aip            => $aip,
                     log            => $self->log,
                     internalmeta   => $self->internalmeta,
+                    extrameta      => $self->extrameta,
                     cosearch       => $self->cosearch,
                     copresentation => $self->copresentation,
                     pressme        => $pressme
