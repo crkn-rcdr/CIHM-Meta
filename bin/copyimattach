@@ -98,7 +98,7 @@ foreach my $attach ( @{ $res->data->{rows} } ) {
     $extrameta->set_header( 'If-Match' => $revision );
 
     $bres = $extrameta->put( "/" . $extrameta->database . "/$id/$file",
-        $ares->data, { deserializer => 'application/json' } );
+        $ares->response->content, { deserializer => 'application/json' } );
     if ( $bres->code != 201 ) {
         warn "put_attachment($id/$file) PUT return code: " . $bres->code . "\n";
     }
