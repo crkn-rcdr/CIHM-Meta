@@ -139,7 +139,8 @@ sub adddocument {
     # Get the Extrameta data, if it exists..
     $self->extrameta->type("application/json");
     my $res =
-      $self->extrameta->get( "/" . $self->extrameta->{database} . "/".$self->aip,
+      $self->extrameta->get(
+        "/" . $self->extrameta->{database} . "/" . $self->aip,
         {}, { deserializer => 'application/json' } );
     if ( $res->code == 200 ) {
         $extradata = $res->data;
@@ -615,8 +616,13 @@ sub process_externalmetaHP {
 
     $self->extrameta->type("application/json");
     my $res = $self->extrameta->get(
-        "/" . $self->extrameta->{database} . "/" . $self->aip . "/externalmetaHP.json",
-        {}, { deserializer => 'application/json' } );
+        "/"
+          . $self->extrameta->{database} . "/"
+          . $self->aip
+          . "/externalmetaHP.json",
+        {},
+        { deserializer => 'application/json' }
+    );
     if ( $res->code != 200 ) {
         die "get of externalmetaHP.json eturn code: " . $res->code . "\n";
     }
