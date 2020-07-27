@@ -33,6 +33,9 @@ sub new {
     if ( !$self->internalmeta ) {
         die "internalmeta object parameter is mandatory\n";
     }
+    if ( !$self->extrameta ) {
+        die "extrameta object parameter is mandatory\n";
+    }
     if ( !$self->cosearch ) {
         die "cosearch object parameter is mandatory\n";
     }
@@ -75,6 +78,11 @@ sub log {
 sub internalmeta {
     my $self = shift;
     return $self->args->{internalmeta};
+}
+
+sub extrameta {
+    my $self = shift;
+    return $self->args->{extrameta};
 }
 
 sub cosearch {
@@ -126,6 +134,18 @@ sub adddocument {
     # Grab the data for the CouchDB document
     my $aipdata = $self->internalmeta->get_aip( $self->aip );
 
+    my $extradata = {};
+
+    # Get the Extrameta data, if it exists..
+    $self->extrameta->type("application/json");
+    my $res =
+      $self->extrameta->get(
+        "/" . $self->extrameta->{database} . "/" . $self->aip,
+        {}, { deserializer => 'application/json' } );
+    if ( $res->code == 200 ) {
+        $extradata = $res->data;
+    }
+
     # Every AIP in the queue must have an attachment from Hammer.
     # (Test is part of the queue map)
     $self->process_hammer();
@@ -151,7 +171,7 @@ sub adddocument {
     }
 
    # If a parl.json attachment exists, process it. (parl-terms.json is obsolete)
-    if ( exists $aipdata->{'attachInfo'}->{'parl.json'} ) {
+    if ( exists $extradata->{'_attachments'}->{'parl.json'} ) {
         $self->process_parl();
     }
 
@@ -190,7 +210,7 @@ sub adddocument {
     # If an externalmetaHP.json attachment exists, process it.
     # - Needs to be processed after process_components() as
     #   process_externalmetaHP() sets a flag within component field.
-    if ( exists $aipdata->{'attachInfo'}->{'externalmetaHP.json'} ) {
+    if ( exists $extradata->{'_attachments'}->{'externalmetaHP.json'} ) {
         $self->process_externalmetaHP();
     }
 
@@ -529,7 +549,15 @@ sub process_hammer {
 sub process_parl {
     my ($self) = @_;
 
-    my $parl     = $self->internalmeta->get_aip( $self->aip . "/parl.json" );
+    $self->extrameta->type("application/json");
+    my $res = $self->extrameta->get(
+        "/" . $self->extrameta->{database} . "/" . $self->aip . "/parl.json",
+        {}, { deserializer => 'application/json' } );
+    if ( $res->code != 200 ) {
+        die "get of parl.json return code: " . $res->code . "\n";
+    }
+    my $parl = $res->data;
+
     my %term_map = (
         language       => "lang",
         label          => "parlLabel",
@@ -585,8 +613,20 @@ sub process_externalmetaHP {
     my ($self) = @_;
 
     # Grab the data for the CouchDB document
-    my $emHP =
-      $self->internalmeta->get_aip( $self->aip . "/externalmetaHP.json" );
+
+    $self->extrameta->type("application/json");
+    my $res = $self->extrameta->get(
+        "/"
+          . $self->extrameta->{database} . "/"
+          . $self->aip
+          . "/externalmetaHP.json",
+        {},
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 200 ) {
+        die "get of externalmetaHP.json eturn code: " . $res->code . "\n";
+    }
+    my $emHP = $res->data;
 
     foreach my $seq ( keys %{$emHP} ) {
         my $pageid = $self->aip . "." . $seq;
