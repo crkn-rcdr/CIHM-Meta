@@ -5,6 +5,7 @@ use Carp;
 use Data::Dumper;
 use DateTime;
 use JSON;
+use URI::Escape qw( uri_escape_utf8 );
 
 use Moo;
 with 'Role::REST::Client';
@@ -38,6 +39,37 @@ sub BUILD {
 sub database {
     my $self = shift;
     return $self->{database};
+}
+
+# backward compatable which returns null or the string in the {return} key.
+sub update_basic {
+    my ( $self, $noid, $updatedoc ) = @_;
+
+    my $r = $self->update_basic_full( $noid, $updatedoc );
+    if ( ref($r) eq "HASH" ) {
+        return $r->{return};
+    }
+}
+
+# Returns the full return object
+sub update_basic_full {
+    my ( $self, $noid, $updatedoc ) = @_;
+    my ( $res, $code, $data );
+
+    # This encoding makes $updatedoc variables available as form data
+    $self->type("application/x-www-form-urlencoded");
+    my $uri = "/"
+      . $self->database
+      . "/_design/metadatabus/_update/basic/"
+      . uri_escape_utf8($noid);
+
+    $res =
+      $self->post( $uri, $updatedoc, { deserializer => 'application/json' } );
+
+    if ( $res->code != 201 && $res->code != 200 ) {
+        warn $uri . " POST return code: " . $res->code . "\n";
+    }
+    return $res->data;
 }
 
 1;
