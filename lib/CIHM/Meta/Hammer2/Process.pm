@@ -9,6 +9,7 @@ use JSON;
 use Switch;
 use URI::Escape;
 use Data::Dumper;
+use CIHM::Meta::dmd::flatten;
 
 =head1 NAME
 
@@ -49,8 +50,11 @@ sub new {
         die "Parameter 'noid' is mandatory\n";
     }
 
+    $self->{flatten} = CIHM::Meta::dmd::flatten->new;
+
     $self->{updatedoc}            = {};
     $self->{pageinfo}             = {};
+    $self->{attachment}           = [];
     $self->pageinfo->{count}      = 0;
     $self->pageinfo->{dimensions} = 0;
 
@@ -78,9 +82,19 @@ sub swift {
     return $self->args->{swift};
 }
 
-sub container {
+sub access_metadata {
     my $self = shift;
-    return $self->args->{swiftcontainer};
+    return $self->args->{access_metadata};
+}
+
+sub access_files {
+    my $self = shift;
+    return $self->args->{access_files};
+}
+
+sub preservation_files {
+    my $self = shift;
+    return $self->args->{preservation_files};
 }
 
 sub manifestdb {
@@ -113,6 +127,22 @@ sub pageinfo {
     return $self->{pageinfo};
 }
 
+sub document {
+    my $self = shift;
+    return $self->{document};
+}
+
+sub flatten {
+    my $self = shift;
+    return $self->{flatten};
+}
+
+sub attachment {
+    my $self = shift;
+    return $self->{attachment};
+}
+
+# Top method
 sub process {
     my ($self) = @_;
 
@@ -125,16 +155,70 @@ sub process {
 }
 
 sub processManifest {
-      my ($self) = @_;
+    my ($self) = @_;
 
-      die "Nothing here for Manifests\n";
+    $self->{document} =
+      $self->manifestdb->get_document( uri_escape_utf8( $self->noid ) );
+    die "Missing Manifest Document\n" if !( $self->document );
+
+    if ( !$self->document->{dmdType} ) {
+        die "Missing dmdType\n";
+    }
+
+    my ( $depositor, $objid ) = split( /\./, $self->document->{'slug'} );
+
+    my $object =
+      $self->noid . '/dmd' . uc( $self->document->{dmdType} ) . '.xml';
+    my $r = $self->swift->object_get( $self->access_metadata, $object );
+    if ( $r->code != 200 ) {
+        die( "Accessing $object returned code: " . $r->code . "\n" );
+    }
+    my $xmlrecord = $r->content;
+
+## First attachment array element is the item
+
+    # Fill in dmdSec information first
+    $self->attachment->[0] = $self->flatten->byType( $self->document->{dmdType},
+          utf8::is_utf8($xmlrecord)
+        ? Encode::encode_utf8($xmlrecord)
+        : $xmlrecord );
+    undef $r;
+    undef $xmlrecord;
+
+    # Prefix depositor to parent key...
+    $self->attachment->[0]->{'pkey'} =
+      $depositor . "." . $self->attachment->[0]->{'pkey'};
+    $self->attachment->[0]->{'depositor'}  = $depositor;
+    $self->attachment->[0]->{'type'}       = 'document';
+    $self->attachment->[0]->{'key'}        = $self->document->{'slug'};
+    $self->attachment->[0]->{'identifier'} = [$objid];
+    $self->attachment->[0]->{'label'} =
+      $self->getIIIFText( $self->document->{'label'} );
+
+## All other attachment array elements are components
+
+    print Dumper ( $self->document, $self->attachment );
+
 }
 
 sub processCollection {
-      my ($self) = @_;
+    my ($self) = @_;
 
-      die "Nothing here for Collections\n";
+    $self->{document} =
+      $self->collectiondb->get_document( uri_escape_utf8( $self->noid ) );
+    die "Missing Collection Document\n" if !( $self->document );
+
+    die "Nothing here for Collections\n";
 }
 
+sub getIIIFText {
+    my ( $self, $text ) = @_;
+
+    foreach my $try ( "none", "en", "fr" ) {
+        if ( exists $text->{$try} ) {
+            return $text->{$try}->[0];
+        }
+    }
+}
 
 1;

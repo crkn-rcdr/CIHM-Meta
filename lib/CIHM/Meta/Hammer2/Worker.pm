@@ -81,8 +81,10 @@ sub initworker {
                 $swiftopt{$_} = $confighash{swift}{$_};
             }
         }
-        $self->{swift}     = CIHM::Swift::Client->new(%swiftopt);
-        $self->{container} = $confighash{swift}{container};
+        $self->{swift}              = CIHM::Swift::Client->new(%swiftopt);
+        $self->{preservation_files} = $confighash{swift}{container};
+        $self->{access_metadata}    = $confighash{swift}{access_metadata};
+        $self->{access_files}       = $confighash{swift}{access_files};
     }
     else {
         croak "No <swift> configuration block in " . $self->configpath . "\n";
@@ -98,11 +100,6 @@ sub log {
 sub swift {
     my $self = shift;
     return $self->{swift};
-}
-
-sub container {
-    my $self = shift;
-    return $self->{container};
 }
 
 sub cantaloupe {
@@ -166,14 +163,16 @@ sub swing {
         $status = 1;
         new CIHM::Meta::Hammer2::Process(
             {
-                noid           => $noid,
-                type           => $type,
-                log            => $self->log,
-                swift          => $self->swift,
-                swiftcontainer => $self->container,
-                cantaloupe     => $self->cantaloupe,
-                manifestdb     => $self->manifestdb,
-                collectiondb   => $self->collectiondb,
+                noid               => $noid,
+                type               => $type,
+                log                => $self->log,
+                swift              => $self->swift,
+                preservation_files => $self->{preservation_files},
+                access_metadata    => $self->{access_metadata},
+                access_files       => $self->{access_files},
+                cantaloupe         => $self->cantaloupe,
+                manifestdb         => $self->manifestdb,
+                collectiondb       => $self->collectiondb,
             }
         )->process;
     }

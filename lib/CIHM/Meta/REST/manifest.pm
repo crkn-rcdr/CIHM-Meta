@@ -72,4 +72,19 @@ sub update_basic_full {
     return $res->data;
 }
 
+sub get_document {
+    my ( $self, $docid ) = @_;
+
+    $self->type("application/json");
+    my $url = "/" . $self->{database} . "/$docid";
+    my $res = $self->get( $url, {}, { deserializer => 'application/json' } );
+    if ( $res->code == 200 ) {
+        return $res->data;
+    }
+    else {
+        warn "GET $url return code: " . $res->code . "\n";
+        return;
+    }
+}
+
 1;
