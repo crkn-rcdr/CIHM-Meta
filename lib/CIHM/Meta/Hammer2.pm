@@ -223,8 +223,6 @@ sub getNextTestNOID {
                     my $noid = $hr->{id};
                     push @{ $self->{testnoids} }, $noid;
                 }
-
-                print Dumper ( $self->{testnoids} );
             }
         }
         else {

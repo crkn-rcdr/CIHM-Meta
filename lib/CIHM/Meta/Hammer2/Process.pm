@@ -166,14 +166,18 @@ sub processManifest {
       $self->manifestdb->get_document( uri_escape_utf8( $self->noid ) );
     die "Missing Manifest Document\n" if !( $self->document );
 
-    if ( !$self->document->{dmdType} ) {
+    if ( !exists $self->document->{'dmdType'} ) {
         die "Missing dmdType\n";
+    }
+
+    if ( !exists $self->document->{'slug'} ) {
+        die "Missing slug\n";
     }
 
     my ( $depositor, $objid ) = split( /\./, $self->document->{'slug'} );
 
     my $object =
-      $self->noid . '/dmd' . uc( $self->document->{dmdType} ) . '.xml';
+      $self->noid . '/dmd' . uc( $self->document->{'dmdType'} ) . '.xml';
     my $r = $self->swift->object_get( $self->access_metadata, $object );
     if ( $r->code != 200 ) {
         die( "Accessing $object returned code: " . $r->code . "\n" );
@@ -183,10 +187,12 @@ sub processManifest {
 ## First attachment array element is the item
 
     # Fill in dmdSec information first
-    $self->attachment->[0] = $self->flatten->byType( $self->document->{dmdType},
-          utf8::is_utf8($xmlrecord)
+    $self->attachment->[0] = $self->flatten->byType(
+        $self->document->{'dmdType'},
+        utf8::is_utf8($xmlrecord)
         ? Encode::encode_utf8($xmlrecord)
-        : $xmlrecord );
+        : $xmlrecord
+    );
     undef $r;
     undef $xmlrecord;
 
