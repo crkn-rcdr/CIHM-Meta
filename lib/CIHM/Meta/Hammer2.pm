@@ -172,13 +172,14 @@ sub hammer {
     my $somework;
 
     my %dblist = (
-        "manifest"   => $self->manifestdb,
-        "collection" => $self->collectiondb
+        "manifest" => $self->manifestdb,
+
+        #        "collection" => $self->collectiondb
     );
 
     foreach my $type ( keys %dblist ) {
         my $thisdb = $dblist{$type};
-        while ( my $noid = $self->getNextNOID($thisdb) ) {
+        while ( my $noid = $self->getNextTestNOID($thisdb) ) {
             $somework = 1;
             $self->{inprogress}->{$noid} = 1;
             $sem->down;
@@ -201,6 +202,40 @@ sub hammer {
     if ($somework) {
         $self->log->info("Finished.");
     }
+}
+
+sub getNextTestNOID {
+    my ( $self, $thisdb ) = @_;
+
+    if ( !exists $self->{testnoids} ) {
+
+        $thisdb->type("application/json");
+        my $url = "/"
+          . $thisdb->database
+          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"issueinfo\"";
+
+        my $res =
+          $thisdb->get( $url, {}, { deserializer => 'application/json' } );
+        if ( $res->code == 200 ) {
+            if ( exists $res->data->{rows} ) {
+                $self->{testnoids} = [];
+                foreach my $hr ( @{ $res->data->{rows} } ) {
+                    my $noid = $hr->{id};
+                    push @{ $self->{testnoids} }, $noid;
+                }
+
+                print Dumper ( $self->{testnoids} );
+            }
+        }
+        else {
+            warn $url . " GET return code: " . $res->code . "\n";
+        }
+    }
+
+    if ( exists $self->{testnoids} ) {
+        return pop @{ $self->{testnoids} };
+    }
+    return;
 }
 
 sub getNextNOID {

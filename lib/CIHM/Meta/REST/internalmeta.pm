@@ -149,13 +149,13 @@ sub get_aip {
     my ( $self, $uid ) = @_;
 
     $self->type("application/json");
-    my $res = $self->get( "/" . $self->{database} . "/$uid",
-        {}, { deserializer => 'application/json' } );
+    my $url = "/" . $self->{database} . "/$uid";
+    my $res = $self->get( $url, {}, { deserializer => 'application/json' } );
     if ( $res->code == 200 ) {
         return $res->data;
     }
     else {
-        warn "get_aip return code: " . $res->code . "\n";
+        warn "get_aip ($url) return code: " . $res->code . " for\n";
         return;
     }
 }

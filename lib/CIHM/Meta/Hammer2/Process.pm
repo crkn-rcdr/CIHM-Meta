@@ -107,6 +107,11 @@ sub collectiondb {
     return $self->args->{collectiondb};
 }
 
+sub internalmetadb {
+    my $self = shift;
+    return $self->args->{internalmetadb};
+}
+
 sub type {
     my $self = shift;
     return $self->args->{type};
@@ -195,10 +200,52 @@ sub processManifest {
     $self->attachment->[0]->{'label'} =
       $self->getIIIFText( $self->document->{'label'} );
 
+    if ( exists $self->document->{'ocrPdf'} ) {
+        $self->attachment->[0]->{'canonicalDownload'} =
+          $self->document->{'ocrPdf'}->{'path'};
+        $self->attachment->[0]->{'canonicalDownloadSize'} =
+          $self->document->{'ocrPdf'}->{'size'};
+    }
+
 ## All other attachment array elements are components
 
-    print Dumper ( $self->document, $self->attachment );
+    # Grab the data from the old attachment
+    my $hammerdata =
+      $self->internalmetadb->get_aip(
+        $self->document->{'slug'} . "/hammer.json" );
 
+    die "Can't load internalmeta attachment\n" if ( !$hammerdata );
+
+    # Testing
+    delete $hammerdata->[0]->{'canonicalDownloadMime'};
+
+    if ( ( keys %{ $hammerdata->[0] } ) != keys %{ $self->attachment->[0] } ) {
+        print Dumper ( $hammerdata->[0], $self->attachment->[0] );
+
+        die "Key length mismatch: "
+          . encode_json( $hammerdata->[0] )
+          . "          "
+          . encode_json( $self->attachment->[0] ) . "\n";
+    }
+
+    my $success = 1;
+    foreach my $key ( keys %{ $hammerdata->[0] } ) {
+        my $hd = $hammerdata->[0]->{$key};
+        if ( ref($hd) eq 'ARRAY' ) {
+            $hd = encode_json( sort( @{$hd} ) );
+        }
+
+        my $at = $self->attachment->[0]->{$key};
+        if ( ref($at) eq 'ARRAY' ) {
+            $at = encode_json( sort( @{$at} ) );
+        }
+
+        if ( $hd ne $at ) {
+            warn "Key:$key   $hd  ne $at\n";
+            $success = 0;
+        }
+    }
+    die "Not matched!\n" if ( !$success );
 }
 
 sub processCollection {

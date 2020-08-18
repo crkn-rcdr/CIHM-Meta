@@ -12,6 +12,7 @@ use CIHM::Swift::Client;
 use CIHM::Meta::REST::cantaloupe;
 use CIHM::Meta::REST::manifest;
 use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::Hammer2::Process;
 
 our $self;
@@ -89,6 +90,20 @@ sub initworker {
     else {
         croak "No <swift> configuration block in " . $self->configpath . "\n";
     }
+
+    # Undefined if no <internalmeta> config block
+    if ( exists $confighash{internalmeta} ) {
+        $self->{internalmetadb} = new CIHM::Meta::REST::internalmeta(
+            server      => $confighash{internalmeta}{server},
+            database    => $confighash{internalmeta}{database},
+            type        => 'application/json',
+            conf        => $configpath,
+            clientattrs => { timeout => 3600 },
+        );
+    }
+    else {
+        croak "Missing <internalmeta> configuration block in config\n";
+    }
 }
 
 # Simple accessors for now -- Do I want to Moo?
@@ -115,6 +130,11 @@ sub manifestdb {
 sub collectiondb {
     my $self = shift;
     return $self->{collectiondb};
+}
+
+sub internalmetadb {
+    my $self = shift;
+    return $self->{internalmetadb};
 }
 
 sub warnings {
@@ -173,6 +193,7 @@ sub swing {
                 cantaloupe         => $self->cantaloupe,
                 manifestdb         => $self->manifestdb,
                 collectiondb       => $self->collectiondb,
+                internalmetadb     => $self->internalmetadb,
             }
         )->process;
     }

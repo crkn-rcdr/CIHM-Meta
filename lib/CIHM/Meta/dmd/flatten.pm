@@ -4,6 +4,7 @@ use strict;
 use Switch;
 use CIHM::METS::parse;    # Borrow some things until we replace it.
 use XML::LibXML;
+use CIHM::Normalise;
 
 sub new {
     my ( $class, $args ) = @_;
@@ -40,9 +41,48 @@ sub issueinfo {
             case "issueinfo" {    #  Skip top level
             }
             case "published" {
-                # TODO: min and max is interesting...
-                $flat{'pubmin'} = $content;
-                $flat{'pubmax'} = $content;
+                my $pubmin;
+                my $pubmax;
+                switch ( length($content) ) {
+                    case 4 {
+                        $pubmin = $content . "-01-01";
+                        $pubmax = $content . "-12-31";
+                    }
+                    case 7 {
+                        $pubmin = $content . "-01";
+                        switch ( int( substr $content, 6 ) ) {
+                            case [2] {
+                                $pubmax = $content . "-28";
+                            }
+                            case [ 1, 3, 5, 7, 8, 10, 12 ] {
+                                $pubmax = $content . "-31";
+                            }
+                            case [ 4, 6, 9, 11 ] {
+                                $pubmax = $content . "-30";
+                            }
+                        }
+                    }
+                    case 10 {
+                        $pubmin = $content;
+                        $pubmax = $content;
+                    }
+                }
+                if ($pubmin) {
+                    $pubmin = iso8601( $pubmin, 0 )
+                      unless ( $pubmin =~
+                        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/ );
+                }
+                if ($pubmax) {
+                    $pubmax = iso8601( $pubmax, 1 )
+                      unless ( $pubmax =~
+                        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/ );
+                }
+                if ( $pubmin && $pubmin !~ /^0000/ ) {
+                    $flat{'pubmin'} = $pubmin;
+                }
+                if ( $pubmax && $pubmax !~ /^0000/ ) {
+                    $flat{'pubmax'} = $pubmax;
+                }
             }
             case "series" {
                 $flat{'pkey'} = $content;
@@ -56,10 +96,35 @@ sub issueinfo {
                 }
                 push @{ $flat{'ti'} }, $content;
             }
-            case [ "pubstatement", "source", "note", "identifier" ] {
-                # cmr:description -- Unused? TODO
-            } else {
-                warn "Unknown issueinfo node name: ".$node->nodeName."\n";
+            case "language" {
+                if ( !exists $flat{'lang'} ) {
+                    $flat{'lang'} = [];
+                }
+                push @{ $flat{'lang'} }, $content;
+            }
+            case "note" {
+                if ( !exists $flat{'no'} ) {
+                    $flat{'no'} = [];
+                }
+                push @{ $flat{'no'} }, $content;
+            }
+            case "source" {
+                if ( !exists $flat{'no_source'} ) {
+                    $flat{'no_source'} = [];
+                }
+                push @{ $flat{'no_source'} }, $content;
+            }
+            case "pubstatement" {
+                if ( !exists $flat{'pu'} ) {
+                    $flat{'pu'} = [];
+                }
+                push @{ $flat{'pu'} }, $content;
+            }
+            case ["identifier","coverage"] {
+                # We aren't using Coverage?
+            }
+            else {
+                warn "Unknown issueinfo node name: " . $node->nodeName . "\n";
             }
         }
     }
