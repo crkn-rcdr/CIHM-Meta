@@ -2,9 +2,9 @@ package CIHM::Meta::dmd::flatten;
 
 use strict;
 use Switch;
-use CIHM::METS::parse;    # Borrow some things until we replace it.
 use XML::LibXML;
 use CIHM::Normalise;
+use Data::Dumper;
 
 sub new {
     my ( $class, $args ) = @_;
@@ -98,10 +98,13 @@ sub issueinfo {
                     push @{ $flat{'ti'} }, $content;
                 }
                 case "language" {
-                    if ( !exists $flat{'lang'} ) {
-                        $flat{'lang'} = [];
+                    my @lang = normalise_lang( $content );
+                    if (@lang) {
+                        if ( !exists $flat{'lang'} ) {
+                            $flat{'lang'} = [];
+                        }
+                        push @{ $flat{'lang'} }, @lang;
                     }
-                    push @{ $flat{'lang'} }, $content;
                 }
                 case "note" {
                     if ( !exists $flat{'no'} ) {
@@ -121,9 +124,15 @@ sub issueinfo {
                     }
                     push @{ $flat{'pu'} }, $content;
                 }
-                case [ "identifier", "coverage" ] {
+                case "identifier" {
+                    if ( !exists $flat{'identifier'} ) {
+                        $flat{'identifier'} = [];
+                    }
+                    push @{ $flat{'identifier'} }, $content;
+                }
+                case "coverage" {
 
-                    # We aren't using Coverage?
+                    # TODO: We aren't using Coverage?
                 }
                 else {
                     warn "Unknown issueinfo node name: "
