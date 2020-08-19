@@ -199,10 +199,18 @@ sub processManifest {
     # Prefix depositor to parent key...
     $self->attachment->[0]->{'pkey'} =
       $depositor . "." . $self->attachment->[0]->{'pkey'};
-    $self->attachment->[0]->{'depositor'}  = $depositor;
-    $self->attachment->[0]->{'type'}       = 'document';
-    $self->attachment->[0]->{'key'}        = $self->document->{'slug'};
-    $self->attachment->[0]->{'identifier'} = [$objid];
+    $self->attachment->[0]->{'depositor'} = $depositor;
+    $self->attachment->[0]->{'type'}      = 'document';
+    $self->attachment->[0]->{'key'}       = $self->document->{'slug'};
+
+    my %identifier = ( $objid => 1 );
+    if ( exists $self->attachment->[0]->{'identifier'} ) {
+        foreach my $identifier ( @{ $self->attachment->[0]->{'identifier'} } ) {
+            $identifier{$identifier} = 1;
+        }
+    }
+    @{ $self->attachment->[0]->{'identifier'} } = keys %identifier;
+
     $self->attachment->[0]->{'label'} =
       $self->getIIIFText( $self->document->{'label'} );
 
@@ -224,6 +232,7 @@ sub processManifest {
 
     # Testing
     delete $hammerdata->[0]->{'canonicalDownloadMime'};
+    delete $hammerdata->[0]->{'canonicalDownloadMD5'};
 
     if ( ( keys %{ $hammerdata->[0] } ) != keys %{ $self->attachment->[0] } ) {
         print Dumper ( $hammerdata->[0], $self->attachment->[0] );
