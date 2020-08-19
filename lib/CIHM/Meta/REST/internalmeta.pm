@@ -155,7 +155,7 @@ sub get_aip {
         return $res->data;
     }
     else {
-        warn "get_aip ($url) return code: " . $res->code . " for\n";
+        warn "get_aip ($url) return code: " . $res->code . "\n";
         return;
     }
 }
