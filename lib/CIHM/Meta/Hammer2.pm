@@ -179,7 +179,7 @@ sub hammer {
 
     foreach my $type ( keys %dblist ) {
         my $thisdb = $dblist{$type};
-        while ( my $noid = $self->getNextTestNOID($thisdb) ) {
+        while ( my $noid = $self->getNextNOID($thisdb) ) {
             $somework = 1;
             $self->{inprogress}->{$noid} = 1;
             $sem->down;
@@ -212,7 +212,7 @@ sub getNextTestNOID {
         $thisdb->type("application/json");
         my $url = "/"
           . $thisdb->database
-          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"issueinfo\"";
+          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"dc\"";
 
         my $res =
           $thisdb->get( $url, {}, { deserializer => 'application/json' } );

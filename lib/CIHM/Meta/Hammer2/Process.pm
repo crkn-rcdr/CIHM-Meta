@@ -10,6 +10,7 @@ use Switch;
 use URI::Escape;
 use Data::Dumper;
 use CIHM::Meta::dmd::flatten;
+use List::MoreUtils qw(uniq);
 
 =head1 NAME
 
@@ -166,12 +167,13 @@ sub processManifest {
       $self->manifestdb->get_document( uri_escape_utf8( $self->noid ) );
     die "Missing Manifest Document\n" if !( $self->document );
 
-    if ( !exists $self->document->{'dmdType'} ) {
-        die "Missing dmdType\n";
+    if ( !exists $self->document->{'slug'} ) {
+        warn "Nothing to do as there is no slug\n";
+        return;
     }
 
-    if ( !exists $self->document->{'slug'} ) {
-        die "Missing slug\n";
+    if ( !exists $self->document->{'dmdType'} ) {
+        die "Missing dmdType\n";
     }
 
     my ( $depositor, $objid ) = split( /\./, $self->document->{'slug'} );
@@ -197,8 +199,11 @@ sub processManifest {
     undef $xmlrecord;
 
     # Prefix depositor to parent key...
-    $self->attachment->[0]->{'pkey'} =
-      $depositor . "." . $self->attachment->[0]->{'pkey'};
+    if ( exists $self->attachment->[0]->{'pkey'} ) {
+        $self->attachment->[0]->{'pkey'} =
+          $depositor . "." . $self->attachment->[0]->{'pkey'};
+    }
+
     $self->attachment->[0]->{'depositor'} = $depositor;
     $self->attachment->[0]->{'type'}      = 'document';
     $self->attachment->[0]->{'key'}       = $self->document->{'slug'};
@@ -214,11 +219,21 @@ sub processManifest {
     $self->attachment->[0]->{'label'} =
       $self->getIIIFText( $self->document->{'label'} );
 
+    $self->attachment->[0]->{'label'} =~
+      s/^\s+|\s+$//g;    # Trim spaces from beginning and end of label
+    $self->attachment->[0]->{'label'} =~ s/\s+/ /g;    # Remove extra spaces
+
     if ( exists $self->document->{'ocrPdf'} ) {
         $self->attachment->[0]->{'canonicalDownload'} =
           $self->document->{'ocrPdf'}->{'path'};
         $self->attachment->[0]->{'canonicalDownloadSize'} =
           $self->document->{'ocrPdf'}->{'size'};
+    }
+    elsif ( exists $self->document->{'master'} ) {
+        $self->attachment->[0]->{'canonicalDownload'} =
+          $self->document->{'master'}->{'path'};
+        $self->attachment->[0]->{'canonicalDownloadSize'} =
+          $self->document->{'master'}->{'size'};
     }
 
 ## All other attachment array elements are components
@@ -230,7 +245,9 @@ sub processManifest {
 
     die "Can't load internalmeta attachment\n" if ( !$hammerdata );
 
-    # Testing
+    #
+    # Testing by comparing with existing Hammer attachments.
+    #
     delete $hammerdata->[0]->{'canonicalDownloadMime'};
     delete $hammerdata->[0]->{'canonicalDownloadMD5'};
 
@@ -247,19 +264,36 @@ sub processManifest {
     foreach my $key ( keys %{ $hammerdata->[0] } ) {
         my $hd = $hammerdata->[0]->{$key};
         if ( ref($hd) eq 'ARRAY' ) {
-            $hd = encode_json( sort( @{$hd} ) );
+            my @array;
+            foreach my $element ( @{$hd} ) {
+                $element =~ s/^\s+|\s+$//g;   # Trim space at end and beginning.
+                $element =~ s/\s+/ /g;        # Remove extra spaces
+                push @array, $element;
+            }
+            my @array = uniq( sort(@array) );
+            $hd = encode_json \@array;
+        }
+        else {
+            $hd =~ s/^\s+|\s+$//g;            # Trim space at end and beginning.
+            $hd =~ s/\s+/ /g;                 # Remove extra spaces
+            $hd = encode_json $hd. "";
         }
 
         my $at = $self->attachment->[0]->{$key};
         if ( ref($at) eq 'ARRAY' ) {
-            $at = encode_json( sort( @{$at} ) );
+            my @array = uniq( sort( @{$at} ) );
+            $at = encode_json \@array;
         }
-
+        else {
+            # Cast to string and encode
+            $at = encode_json $at. "";
+        }
         if ( $hd ne $at ) {
-            warn "Key:$key   $hd  ne $at\n";
+            warn "Key:$key   $hd  != $at\n";
             $success = 0;
         }
     }
+    print Dumper ( $hammerdata->[0], $self->attachment->[0] ) if ( !$success );
     die "Not matched!\n" if ( !$success );
 }
 
