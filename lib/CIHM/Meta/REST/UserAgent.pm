@@ -66,7 +66,7 @@ sub _add_c7a_headers {
     );
 
     $request->{headers}{'Authorization'} =
-      "C7A2 " . encode_param($jws_token);
+      "Bearer " . encode_param($jws_token);
     return;
 }
 
