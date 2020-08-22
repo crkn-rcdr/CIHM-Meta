@@ -21,12 +21,15 @@ sub BUILD {
     $self->{LocalTZ} = DateTime::TimeZone->new( name => 'local' );
 
     $self->server( $args->{url} );
-    $self->{clientattrs}->{c7a_id}     = $args->{key};
-    $self->{clientattrs}->{jwt_secret} = $args->{password};
+
+    if ( !defined $args->{jwt_secret} ) {
+        die "You need to supply jwt_secret\n";
+    }
+    $self->{clientattrs}->{jwt_secret} = $args->{jwt_secret};
 
     if ( !$self->server ) {
         die
-"You need to supply Content Server URL (in config file or command line)";
+"You need to supply Content Server URL (in config file or command line)\n";
     }
 
     # JWT specific

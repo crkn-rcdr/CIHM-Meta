@@ -18,8 +18,7 @@ sub new {
 
     my $self = $class->SUPER::new(%args);
 
-    $self->{c7a_id}        = $args{c7a_id}        || '';
-    $self->{jwt_secret}    = $args{jwt_secret}    || '';
+    $self->{jwt_secret} = $args{jwt_secret} || die "Must supply jwt_secret\n";
     $self->{jwt_algorithm} = $args{jwt_algorithm} || 'HS256';
     my $payload = $args{jwt_payload} || {};
 
@@ -30,9 +29,6 @@ sub new {
         $self->{jwt_payload} = decode_json($payload);
     }
 
-    # Set iss
-    $self->{jwt_payload}->{iss} = $self->{c7a_id};
-
     return bless $self, $class;
 }
 
@@ -42,9 +38,7 @@ sub _prepare_headers_and_cb {
     $self->SUPER::_prepare_headers_and_cb( $request, $args, $url, $auth );
 
     # add our own very special authorization headers
-    if ( $self->{c7a_id} && $self->{jwt_secret} ) {
-        $self->_add_c7a_headers( $request, $args );
-    }
+    $self->_add_bearer_headers( $request, $args );
 
     return;
 }
@@ -54,10 +48,13 @@ sub encode_param {
     URI::Escape::uri_escape( $param, '^\w.~-' );
 }
 
-sub _add_c7a_headers {
+sub _add_bearer_headers {
     my ( $self, $request, $args ) = @_;
     my $uri    = URI->new( $request->{uri} );
     my $method = uc $request->{method};
+
+    # Hard-code iss, as this is no longer an option
+    $self->{jwt_payload}->{iss} = 'CAP';
 
     my $jws_token = encode_jwt(
         payload => $self->{jwt_payload},
