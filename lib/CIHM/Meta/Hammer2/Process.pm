@@ -251,17 +251,12 @@ sub processManifest {
     delete $hammerdata->[0]->{'canonicalDownloadMime'};
     delete $hammerdata->[0]->{'canonicalDownloadMD5'};
 
-    if ( ( keys %{ $hammerdata->[0] } ) != keys %{ $self->attachment->[0] } ) {
-        print Dumper ( $hammerdata->[0], $self->attachment->[0] );
 
-        die "Key length mismatch: "
-          . encode_json( $hammerdata->[0] )
-          . "          "
-          . encode_json( $self->attachment->[0] ) . "\n";
-    }
+    my @allkeys= keys %{ $hammerdata->[0] };
+    push @allkeys, keys %{ $self->attachment->[0] };
 
     my $success = 1;
-    foreach my $key ( keys %{ $hammerdata->[0] } ) {
+    foreach my $key ( uniq @allkeys ) {
         my $hd = $hammerdata->[0]->{$key};
         if ( ref($hd) eq 'ARRAY' ) {
             my @array;
@@ -293,8 +288,8 @@ sub processManifest {
             $success = 0;
         }
     }
-    print Dumper ( $hammerdata->[0], $self->attachment->[0] ) if ( !$success );
-    die "Not matched!\n" if ( !$success );
+    print Dumper ( $self->noid, $hammerdata->[0], $self->attachment->[0] ) if ( !$success );
+    die "Not matched! slug=".$self->document->{'slug'}."\n" if ( !$success );
 }
 
 sub processCollection {
