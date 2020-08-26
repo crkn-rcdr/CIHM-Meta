@@ -40,4 +40,28 @@ sub database {
     return $self->{database};
 }
 
+sub get_documents {
+    my ( $self, $docids ) = @_;
+
+    $self->type("application/json");
+    my $url = "/" . $self->{database} . "/_all_docs?include_docs=true";
+    my $res = $self->post( $url, { keys => $docids }, { deserializer => 'application/json' } );
+    if ( $res->code == 200 ) {
+        my @return;
+        foreach my $row (@{$res->data->{rows}}) {
+            if (exists $row->{doc}) {
+                push @return, $row->{doc};
+            } else {
+                warn "Key: ". $row->{key}. "   Error: ". $row->{error}."\n";
+                push @return, undef;
+            }
+        }
+        return \@return;
+    }
+    else {
+        warn "POST $url return code: " . $res->code . "\n";
+        return;
+    }
+}
+
 1;

@@ -72,7 +72,7 @@ sub update_basic_full {
     my ( $res, $code, $data );
 
     # This encoding makes $updatedoc variables available as form data
-    $self->type("application/x-www-form-urlencoded");
+    $self->type("application/json");
     $res = $self->post(
         "/" . $self->{database} . "/_design/tdr/_update/basic/" . $uid,
         $updatedoc, { deserializer => 'application/json' } );
@@ -127,7 +127,7 @@ sub put_attachment {
     }
     else {
         warn "put_attachment($uid) HEAD return code: " . $res->code . "\n";
-        return;
+        return $res->code;
     }
     $self->clear_headers;
     $self->set_header( 'If-Match' => $revision );

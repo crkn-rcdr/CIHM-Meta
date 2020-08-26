@@ -9,7 +9,7 @@ use JSON;
 use Switch;
 use URI::Escape;
 use Data::Dumper;
-use CIHM::Meta::dmd::flatten;
+use CIHM::Meta::dmd::flatten qw(normaliseSpace);
 use List::MoreUtils qw(uniq);
 
 =head1 NAME
@@ -108,6 +108,11 @@ sub collectiondb {
     return $self->args->{collectiondb};
 }
 
+sub canvasdb {
+    my $self = shift;
+    return $self->args->{canvasdb};
+}
+
 sub internalmetadb {
     my $self = shift;
     return $self->args->{internalmetadb};
@@ -171,12 +176,13 @@ sub processManifest {
         warn "Nothing to do as there is no slug\n";
         return;
     }
+    my $slug = $self->document->{'slug'};
 
     if ( !exists $self->document->{'dmdType'} ) {
         die "Missing dmdType\n";
     }
 
-    my ( $depositor, $objid ) = split( /\./, $self->document->{'slug'} );
+    my ( $depositor, $objid ) = split( /\./, $slug );
 
     my $object =
       $self->noid . '/dmd' . uc( $self->document->{'dmdType'} ) . '.xml';
@@ -206,7 +212,8 @@ sub processManifest {
 
     $self->attachment->[0]->{'depositor'} = $depositor;
     $self->attachment->[0]->{'type'}      = 'document';
-    $self->attachment->[0]->{'key'}       = $self->document->{'slug'};
+    $self->attachment->[0]->{'key'}       = $slug;
+    $self->attachment->[0]->{'noid'}      = $self->noid;
 
     my %identifier = ( $objid => 1 );
     if ( exists $self->attachment->[0]->{'identifier'} ) {
@@ -238,58 +245,128 @@ sub processManifest {
 
 ## All other attachment array elements are components
 
-    # Grab the data from the old attachment
-    my $hammerdata =
-      $self->internalmetadb->get_aip(
-        $self->document->{'slug'} . "/hammer.json" );
+    if ( $self->document->{'canvases'} ) {
+        my @canvasids;
+        foreach my $i ( 0 .. ( @{ $self->document->{'canvases'} } - 1 ) ) {
+            push @canvasids, $self->document->{'canvases'}->[$i]->{'id'};
+            $self->attachment->[ $i + 1 ]->{'noid'} =
+              $self->document->{'canvases'}->[$i]->{'id'};
+            $self->attachment->[ $i + 1 ]->{'label'} =
+              $self->getIIIFText(
+                $self->document->{'canvases'}->[$i]->{'label'} );
+            $self->attachment->[ $i + 1 ]->{'type'}      = 'page';
+            $self->attachment->[ $i + 1 ]->{'seq'}       = $i + 1;
+            $self->attachment->[ $i + 1 ]->{'depositor'} = $depositor;
+            $self->attachment->[ $i + 1 ]->{'identifier'} =
+              [ $objid . "." . ( $i + 1 ) ];
+            $self->attachment->[ $i + 1 ]->{'pkey'} = $slug;
+            $self->attachment->[ $i + 1 ]->{'key'} = $slug . "." . ( $i + 1 );
+        }
+        my @canvases = @{ $self->canvasdb->get_documents( \@canvasids ) };
+        die "Array length mismatch\n" if ( @canvases != @canvases );
 
-    die "Can't load internalmeta attachment\n" if ( !$hammerdata );
+        foreach my $i ( 0 .. ( @canvases - 1 ) ) {
+            if ( defined $canvases[$i]{'master'} ) {
+                my %master = %{ $canvases[$i]{'master'} };
 
-    #
-    # Testing by comparing with existing Hammer attachments.
-    #
-    delete $hammerdata->[0]->{'canonicalDownloadMime'};
-    delete $hammerdata->[0]->{'canonicalDownloadMD5'};
-
-
-    my @allkeys= keys %{ $hammerdata->[0] };
-    push @allkeys, keys %{ $self->attachment->[0] };
-
-    my $success = 1;
-    foreach my $key ( uniq @allkeys ) {
-        my $hd = $hammerdata->[0]->{$key};
-        if ( ref($hd) eq 'ARRAY' ) {
-            my @array;
-            foreach my $element ( @{$hd} ) {
-                $element =~ s/^\s+|\s+$//g;   # Trim space at end and beginning.
-                $element =~ s/\s+/ /g;        # Remove extra spaces
-                push @array, $element;
+                $self->attachment->[ $i + 1 ]->{'canonicalMasterHeight'} =
+                  $master{height}
+                  if ( defined $master{height} );
+                $self->attachment->[ $i + 1 ]->{'canonicalMasterWidth'} =
+                  $master{width}
+                  if ( defined $master{width} );
+                $self->attachment->[ $i + 1 ]->{'canonicalMaster'} =
+                  $master{path}
+                  if ( defined $master{path} );
+                $self->attachment->[ $i + 1 ]->{'canonicalMasterSize'} =
+                  $master{size}
+                  if ( defined $master{size} );
+                $self->attachment->[ $i + 1 ]->{'canonicalMasterMime'} =
+                  $master{mime}
+                  if ( defined $master{mime} );
             }
-            my @array = uniq( sort(@array) );
-            $hd = encode_json \@array;
-        }
-        else {
-            $hd =~ s/^\s+|\s+$//g;            # Trim space at end and beginning.
-            $hd =~ s/\s+/ /g;                 # Remove extra spaces
-            $hd = encode_json $hd. "";
+
+            if ( defined $canvases[$i]{'ocrType'} ) {
+                my $noid = $self->attachment->[ $i + 1 ]->{'noid'};
+                my $object =
+                  $noid . '/ocr' . uc( $canvases[$i]{'ocrType'} ) . '.xml';
+                my $r =
+                  $self->swift->object_get( $self->access_metadata, $object );
+                if ( $r->code != 200 ) {
+                    die(
+                        "Accessing $object returned code: " . $r->code . "\n" );
+                }
+                my $xmlrecord = $r->content;
+
+                my $ocr;
+                my $xml = XML::LibXML->new->parse_string($xmlrecord);
+                my $xpc = XML::LibXML::XPathContext->new($xml);
+                $xpc->registerNs( 'txt',
+                    'http://canadiana.ca/schema/2012/xsd/txtmap' );
+                $xpc->registerNs( 'alto',
+                    'http://www.loc.gov/standards/alto/ns-v3' );
+                if (   $xpc->exists( '//txt:txtmap', $xml )
+                    || $xpc->exists( '//txtmap', $xml ) )
+                {
+                    $ocr = $xml->textContent;
+                }
+                elsif (
+                       $xpc->exists( '//alto', $xml )
+                    || $xpc->exists('//alto:alto'),
+                    $xml
+                  )
+                {
+                    $ocr = '';
+                    foreach
+                      my $content ( $xpc->findnodes( '//*[@CONTENT]', $xml ) )
+                    {
+                        $ocr .= " " . $content->getAttribute('CONTENT');
+                    }
+                }
+                else {
+                    die "Unknown XML schema for noid=$noid\n";
+                }
+                $self->attachment->[ $i + 1 ]->{'tx'} = [ normaliseSpace($ocr) ]
+                  if $ocr;
+            }
         }
 
-        my $at = $self->attachment->[0]->{$key};
-        if ( ref($at) eq 'ARRAY' ) {
-            my @array = uniq( sort( @{$at} ) );
-            $at = encode_json \@array;
-        }
-        else {
-            # Cast to string and encode
-            $at = encode_json $at. "";
-        }
-        if ( $hd ne $at ) {
-            warn "Key:$key   $hd  != $at\n";
-            $success = 0;
+        #        print Dumper ( \@canvasids, \@canvases );
+    }
+
+## Build update document and attachment
+
+    $self->updatedoc->{'type'} = 'aip';
+
+    # Manifests are all 'document', ordered collections will be 'series'
+    $self->updatedoc->{'sub-type'} = 'document';
+
+# TODO: Set everything to approved for now (will have unpublished checked later)
+    $self->updatedoc->{'approved'} = JSON::true;
+
+    # We may not care about these any more, but will decide later...
+    foreach my $field ( 'label', 'pubmin', 'pubmax', 'canonicalDownload' ) {
+        if ( defined $self->attachment->[0]->{$field} ) {
+            $self->updatedoc->{$field} = $self->attachment->[0]->{$field};
         }
     }
-    print Dumper ( $self->noid, $hammerdata->[0], $self->attachment->[0] ) if ( !$success );
-    die "Not matched! slug=".$self->document->{'slug'}."\n" if ( !$success );
+
+    # Create document if it doesn't already exist
+    $self->internalmetadb->update_basic_full( $slug, {} );
+
+    my $return = $self->internalmetadb->put_attachment(
+        $slug,
+        {
+            type      => "application/json",
+            content   => encode_json $self->attachment,
+            filename  => "hammer.json",
+            updatedoc => $self->updatedoc
+        }
+    );
+
+    if ( $return != 201 ) {
+        die "Return code $return for internalmetadb->put_attachment($slug)\n";
+    }
 }
 
 sub processCollection {

@@ -12,6 +12,7 @@ use CIHM::Swift::Client;
 use CIHM::Meta::REST::cantaloupe;
 use CIHM::Meta::REST::manifest;
 use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::canvas;
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::Hammer2::Process;
 
@@ -73,6 +74,20 @@ sub initworker {
         croak "Missing <collection> configuration block in config\n";
     }
 
+    # Undefined if no <canvas> config block
+    if ( exists $confighash{canvas} ) {
+        $self->{canvasdb} = new CIHM::Meta::REST::canvas(
+            server      => $confighash{canvas}{server},
+            database    => $confighash{canvas}{database},
+            type        => 'application/json',
+            conf        => $configpath,
+            clientattrs => { timeout => 3600 },
+        );
+    }
+    else {
+        croak "Missing <canvas> configuration block in config\n";
+    }
+
     # Undefined if no <swift> config block
     if ( exists $confighash{swift} ) {
         my %swiftopt = ( furl_options => { timeout => 120 } );
@@ -90,18 +105,18 @@ sub initworker {
         croak "No <swift> configuration block in " . $self->configpath . "\n";
     }
 
-    # Undefined if no <internalmeta> config block
-    if ( exists $confighash{internalmeta} ) {
+    # Undefined if no <internalmeta2> config block
+    if ( exists $confighash{internalmeta2} ) {
         $self->{internalmetadb} = new CIHM::Meta::REST::internalmeta(
-            server      => $confighash{internalmeta}{server},
-            database    => $confighash{internalmeta}{database},
+            server      => $confighash{internalmeta2}{server},
+            database    => $confighash{internalmeta2}{database},
             type        => 'application/json',
             conf        => $configpath,
             clientattrs => { timeout => 3600 },
         );
     }
     else {
-        croak "Missing <internalmeta> configuration block in config\n";
+        croak "Missing <internalmeta2> configuration block in config\n";
     }
 }
 
@@ -129,6 +144,11 @@ sub manifestdb {
 sub collectiondb {
     my $self = shift;
     return $self->{collectiondb};
+}
+
+sub canvasdb {
+    my $self = shift;
+    return $self->{canvasdb};
 }
 
 sub internalmetadb {
@@ -192,6 +212,7 @@ sub swing {
                 cantaloupe         => $self->cantaloupe,
                 manifestdb         => $self->manifestdb,
                 collectiondb       => $self->collectiondb,
+                canvasdb           => $self->canvasdb,
                 internalmetadb     => $self->internalmetadb,
             }
         )->process;

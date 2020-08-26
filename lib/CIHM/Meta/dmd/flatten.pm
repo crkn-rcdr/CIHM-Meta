@@ -8,6 +8,13 @@ use Data::Dumper;
 use MARC::File::XML ( BinaryEncoding => 'utf8', RecordFormat => 'USMARC' );
 use List::MoreUtils qw(uniq);
 
+
+use Exporter qw(import);
+our @EXPORT = qw(
+  normaliseSpace
+);
+
+
 sub new {
     my ( $class, $args ) = @_;
     my $self = bless {}, $class;
