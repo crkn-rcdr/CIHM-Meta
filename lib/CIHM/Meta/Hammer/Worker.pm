@@ -32,8 +32,7 @@ sub initworker {
     if ( exists $confighash{cantaloupe} ) {
         $self->{cantaloupe} = new CIHM::Meta::REST::cantaloupe(
             url         => $confighash{cantaloupe}{url},
-            key         => $confighash{cantaloupe}{key},
-            password    => $confighash{cantaloupe}{password},
+            jwt_secret  => $confighash{cantaloupe}{password},
             jwt_payload => '{"uids":[".*"]}',
             type        => 'application/json',
             conf        => $configpath,
