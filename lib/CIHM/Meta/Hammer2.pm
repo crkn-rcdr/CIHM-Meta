@@ -212,7 +212,7 @@ sub getNextTestNOID {
         $thisdb->type("application/json");
         my $url = "/"
           . $thisdb->database
-          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"dc\"";
+          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"marc\"";
 
         my $res =
           $thisdb->get( $url, {}, { deserializer => 'application/json' } );
