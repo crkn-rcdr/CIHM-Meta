@@ -172,9 +172,8 @@ sub hammer {
     my $somework;
 
     my %dblist = (
-        "manifest" => $self->manifestdb,
-
-        #        "collection" => $self->collectiondb
+        "manifest"   => $self->manifestdb,
+        "collection" => $self->collectiondb
     );
 
     foreach my $type ( keys %dblist ) {

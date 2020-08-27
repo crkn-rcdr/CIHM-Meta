@@ -87,4 +87,19 @@ sub get_document {
     }
 }
 
+sub getCollections {
+    my ( $self, $docid ) = @_;
+
+    $self->type("application/json");
+    my $url = "/" . $self->{database} . "/_design/access/_view/items";
+    my $res = $self->post( $url, { keys => [$docid] }, { deserializer => 'application/json' } );
+    if ( $res->code == 200 ) {
+        return $res->data->{rows};
+    }
+    else {
+        warn "POST $url return code: " . $res->code . "\n";
+        return;
+    }
+}
+
 1;

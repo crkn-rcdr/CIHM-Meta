@@ -158,22 +158,27 @@ sub process {
     my ($self) = @_;
 
     if ( $self->type eq "manifest" ) {
-        $self->processManifest();
+        $self->{document} =
+          $self->manifestdb->get_document( uri_escape_utf8( $self->noid ) );
+        die "Missing Manifest Document\n" if !( $self->document );
     }
-    else {
-        $self->processCollection();
+    else {    # This is a collection
+        $self->{document} =
+          $self->collectiondb->get_document( uri_escape_utf8( $self->noid ) );
+        die "Missing Collection Document\n" if !( $self->document );
+
+        if (   !( exists $self->document->{'ordered'} )
+            || !( $self->document->{'ordered'} ) )
+        {
+            warn "Nothing to do for unordered collections\n";
+            return;
+        }
     }
-}
-
-sub processManifest {
-    my ($self) = @_;
-
-    $self->{document} =
-      $self->manifestdb->get_document( uri_escape_utf8( $self->noid ) );
-    die "Missing Manifest Document\n" if !( $self->document );
 
     if ( !exists $self->document->{'slug'} ) {
-        warn "Nothing to do as there is no slug\n";
+
+        # TODO: Look up noid in view and unapprove if it previously had a noid.
+        warn "Nothing currently to do as there is no slug\n";
         return;
     }
     my $slug = $self->document->{'slug'};
@@ -204,16 +209,15 @@ sub processManifest {
     undef $r;
     undef $xmlrecord;
 
-    # Prefix depositor to parent key...
-    if ( exists $self->attachment->[0]->{'pkey'} ) {
-        $self->attachment->[0]->{'pkey'} =
-          $depositor . "." . $self->attachment->[0]->{'pkey'};
-    }
-
     $self->attachment->[0]->{'depositor'} = $depositor;
-    $self->attachment->[0]->{'type'}      = 'document';
-    $self->attachment->[0]->{'key'}       = $slug;
-    $self->attachment->[0]->{'noid'}      = $self->noid;
+    if ( $self->type eq "manifest" ) {
+        $self->attachment->[0]->{'type'} = 'document';
+    }
+    else {
+        $self->attachment->[0]->{'type'} = 'series';
+    }
+    $self->attachment->[0]->{'key'}  = $slug;
+    $self->attachment->[0]->{'noid'} = $self->noid;
 
     my %identifier = ( $objid => 1 );
     if ( exists $self->attachment->[0]->{'identifier'} ) {
@@ -298,6 +302,11 @@ sub processManifest {
                 }
                 my $xmlrecord = $r->content;
 
+                # Add Namespace if missing
+                $xmlrecord =~
+s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g;
+                $xmlrecord =~ s|</txt:txtmap>|</txtmap>|g;
+
                 my $ocr;
                 my $xml = XML::LibXML->new->parse_string($xmlrecord);
                 my $xpc = XML::LibXML::XPathContext->new($xml);
@@ -338,16 +347,55 @@ sub processManifest {
 
     $self->updatedoc->{'type'} = 'aip';
 
-    # Manifests are all 'document', ordered collections will be 'series'
-    $self->updatedoc->{'sub-type'} = 'document';
+    # Manifests are all 'document', ordered collections are 'series'
+    $self->updatedoc->{'sub-type'} = $self->attachment->[0]->{'type'};
 
-# TODO: Set everything to approved for now (will have unpublished checked later)
-    $self->updatedoc->{'approved'} = JSON::true;
+    # If not public, then not approved in old system (clean up cosearch/copresentation docs)
+    if ( exists $self->document->{'public'} ) {
+        $self->updatedoc->{'approved'} = JSON::true;
+    }
+    else {
+        $self->updatedoc->{'approved'} = JSON::false;
+
+    }
 
     # We may not care about these any more, but will decide later...
     foreach my $field ( 'label', 'pubmin', 'pubmax', 'canonicalDownload' ) {
         if ( defined $self->attachment->[0]->{$field} ) {
             $self->updatedoc->{$field} = $self->attachment->[0]->{$field};
+        }
+    }
+
+## Determine what collections this manifest or collection is in
+    my @collections;
+    my @parents;
+    foreach
+      my $collection ( @{ $self->collectiondb->getCollections( $self->noid ) } )
+    {
+        if (   exists $collection->{value}
+            && exists $collection->{value}->{slug} )
+        {
+            if ( $collection->{value}->{ordered} ) {
+                push @parents, $collection->{value}->{slug};
+            }
+            else {
+                push @collections, $collection->{value}->{slug};
+            }
+        }
+    }
+    if (@collections) {
+        $self->updatedoc->{collectionseq} = join( ',', @collections );
+    }
+
+    # Ignore parent key from issueinfo records
+    delete $self->attachment->[0]->{'pkey'};
+    if (@parents) {
+        if (@parents != 1) {
+            warn "A member of more than a single ordered collection\n";
+        }
+        my $parent = shift @parents;
+        if ($parent) {
+            $self->attachment->[0]->{'pkey'}=$parent;
         }
     }
 
@@ -367,16 +415,6 @@ sub processManifest {
     if ( $return != 201 ) {
         die "Return code $return for internalmetadb->put_attachment($slug)\n";
     }
-}
-
-sub processCollection {
-    my ($self) = @_;
-
-    $self->{document} =
-      $self->collectiondb->get_document( uri_escape_utf8( $self->noid ) );
-    die "Missing Collection Document\n" if !( $self->document );
-
-    die "Nothing here for Collections\n";
 }
 
 sub getIIIFText {
