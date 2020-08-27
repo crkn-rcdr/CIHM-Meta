@@ -152,8 +152,8 @@ sub adddocument {
 
     # Map also counts for a minimum of repos, so adding in current array
     # to presentation.
-    $self->presentdoc->{ $self->aip }->{'repos'} =
-      $aipdata->{'repos'};
+    $self->presentdoc->{ $self->aip }->{'repos'} = $aipdata->{'repos'}
+      if defined $aipdata->{'repos'};
 
     # All Items should have a date
     $self->presentdoc->{ $self->aip }->{'updated'} =
@@ -495,17 +495,17 @@ sub process_hammer {
 
         # Copy the fields for cosearch
         foreach my $cf (
-            "key",       "type",
-            "depositor", "label",
-            "pkey",      "seq",
-            "pubmin",    "pubmax",
-            "lang",      "identifier",
-            "pg_label",  "ti",
-            "au",        "pu",
-            "su",        "no",
-            "ab",        "tx",
-            "no_rights", "no_source",
-            "component_count_fulltext"
+            "key",                      "type",
+            "depositor",                "label",
+            "pkey",                     "seq",
+            "pubmin",                   "pubmax",
+            "lang",                     "identifier",
+            "pg_label",                 "ti",
+            "au",                       "pu",
+            "su",                       "no",
+            "ab",                       "tx",
+            "no_rights",                "no_source",
+            "component_count_fulltext", "noid"
           )
         {
             $self->searchdoc->{$key}->{$cf} = $doc->{$cf} if exists $doc->{$cf};
@@ -529,7 +529,8 @@ sub process_hammer {
             "au",                    "pu",
             "su",                    "no",
             "ab",                    "no_source",
-            "no_rights",             "component_count_fulltext"
+            "no_rights",             "component_count_fulltext",
+            "noid"
           )
         {
             $self->presentdoc->{$key}->{$cf} = $doc->{$cf}
