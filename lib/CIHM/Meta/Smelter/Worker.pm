@@ -21,7 +21,7 @@ our $self;
 
     package restclient;
 
-    use Moose;
+    use Moo;
     with 'Role::REST::Client';
 }
 
