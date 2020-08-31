@@ -178,8 +178,16 @@ sub process {
     if ( !exists $self->document->{'slug'} ) {
 
         # TODO: Look up noid in view and unapprove if it previously had a noid.
-        warn "Nothing currently to do as there is no slug\n";
-        return;
+        if ( exists $self->document->{'public'} ) {
+
+            # Noids without slugs shouldn't be public!
+            warn "Noids without slugs shouldn't be marked public\n";
+            return;
+        }
+        else {
+            # If private, then this is a silent success
+            return;
+        }
     }
     my $slug = $self->document->{'slug'};
 
@@ -350,7 +358,7 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
     # Manifests are all 'document', ordered collections are 'series'
     $self->updatedoc->{'sub-type'} = $self->attachment->[0]->{'type'};
 
-    # If not public, then not approved in old system (clean up cosearch/copresentation docs)
+# If not public, then not approved in old system (clean up cosearch/copresentation docs)
     if ( exists $self->document->{'public'} ) {
         $self->updatedoc->{'approved'} = JSON::true;
     }
@@ -390,12 +398,12 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
     # Ignore parent key from issueinfo records
     delete $self->attachment->[0]->{'pkey'};
     if (@parents) {
-        if (@parents != 1) {
+        if ( @parents != 1 ) {
             warn "A member of more than a single ordered collection\n";
         }
         my $parent = shift @parents;
         if ($parent) {
-            $self->attachment->[0]->{'pkey'}=$parent;
+            $self->attachment->[0]->{'pkey'} = $parent;
         }
     }
 
