@@ -13,11 +13,13 @@ use CIHM::Meta::REST::manifest;
 use Data::Dumper;
 
 my $conf = "/etc/canadiana/tdr/tdr.conf";
+my $noupdate;
 my $debug;
 
 GetOptions(
-    'conf:s' => \$conf,
-    'debug'  => \$debug
+    'conf:s'   => \$conf,
+    'noupdate' => \$noupdate,
+    'debug'    => \$debug
 );
 
 my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
@@ -109,21 +111,25 @@ if ( $res->code != 200 ) {
 
 foreach my $doc ( @{ $res->data->{rows} } ) {
     if ( exists $doc->{id} ) {
-        print $doc->{key} . " == "
-          . $doc->{id} . " --> "
-          . $collections{ $doc->{key} } . "\n";
-        my $command  = delete $collections{ $doc->{key} };
-        my $request2 = "/"
-          . $collectiondb->{database}
-          . "/_design/metadatabus/_update/basic/"
-          . uri_escape( $doc->{id} );
-        my $updatedoc = { $command => JSON::true };
-        my $res2 = $collectiondb->post( $request2, $updatedoc,
-            { deserializer => 'application/json' } );
+        my $command = delete $collections{ $doc->{key} };
+        if (   ( ( $command eq 'makepublic' ) && !( $doc->{value}->{public} ) )
+            || ( ( $command eq 'makeprivate' ) && $doc->{value}->{public} ) )
+        {
+            print $doc->{key} . " == " . $doc->{id} . " --> $command\n";
+            if ( !$noupdate ) {
+                my $request2 = "/"
+                  . $collectiondb->{database}
+                  . "/_design/metadatabus/_update/basic/"
+                  . uri_escape( $doc->{id} );
+                my $updatedoc = { $command => JSON::true };
+                my $res2 = $collectiondb->post( $request2, $updatedoc,
+                    { deserializer => 'application/json' } );
 
-        #       print Dumper( $request2, $updatedoc, $res2 );
-        if ( $res2->code != 200 && $res2->code != 201 ) {
-            die "CouchDB: \"$request2\" return code: " . $res2->code . "\n";
+                if ( $res2->code != 200 && $res2->code != 201 ) {
+                    die "CouchDB: \"$request2\" return code: "
+                      . $res2->code . "\n";
+                }
+            }
         }
     }
     else {
@@ -149,21 +155,25 @@ if ( $res->code != 200 ) {
 foreach my $doc ( @{ $res->data->{rows} } ) {
     if ( exists $doc->{id} ) {
 
-        print $doc->{key} . " == "
-          . $doc->{id} . " --> "
-          . $manifests{ $doc->{key} } . "\n";
-        my $command  = delete $manifests{ $doc->{key} };
-        my $request2 = "/"
-          . $manifestdb->{database}
-          . "/_design/metadatabus/_update/basic/"
-          . uri_escape( $doc->{id} );
-        my $updatedoc = { $command => JSON::true };
-        my $res2 = $manifestdb->post( $request2, $updatedoc,
-            { deserializer => 'application/json' } );
+        my $command = delete $manifests{ $doc->{key} };
+        if (   ( ( $command eq 'makepublic' ) && !( $doc->{value}->{public} ) )
+            || ( ( $command eq 'makeprivate' ) && $doc->{value}->{public} ) )
+        {
+            print $doc->{key} . " == " . $doc->{id} . " --> $command\n";
+            if ( !$noupdate ) {
+                my $request2 = "/"
+                  . $manifestdb->{database}
+                  . "/_design/metadatabus/_update/basic/"
+                  . uri_escape( $doc->{id} );
+                my $updatedoc = { $command => JSON::true };
+                my $res2 = $manifestdb->post( $request2, $updatedoc,
+                    { deserializer => 'application/json' } );
 
-        #       print Dumper( $request2, $updatedoc, $res2 );
-        if ( $res2->code != 200 && $res2->code != 201 ) {
-            die "CouchDB: \"$request2\" return code: " . $res2->code . "\n";
+                if ( $res2->code != 200 && $res2->code != 201 ) {
+                    die "CouchDB: \"$request2\" return code: "
+                      . $res2->code . "\n";
+                }
+            }
         }
     }
     else {
