@@ -381,6 +381,12 @@ sub dc {
                     }
                     push @{ $flat{'pu'} }, $content;
                 }
+                case ["relation","coverage","rights"] {
+                    if ( !exists $flat{'no'} ) {
+                        $flat{'no'} = [];
+                    }
+                    push @{ $flat{'no'} }, $content;
+                }
                 case [ "source", "contributor" ] {
                     if ( !exists $flat{'no_source'} ) {
                         $flat{'no_source'} = [];
