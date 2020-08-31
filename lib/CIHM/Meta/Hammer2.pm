@@ -178,6 +178,7 @@ sub hammer {
 
     foreach my $type ( keys %dblist ) {
         my $thisdb = $dblist{$type};
+        delete $self->{testnoids};
         while ( my $noid = $self->getNextNOID($thisdb) ) {
             $somework = 1;
             $self->{inprogress}->{$noid} = 1;
@@ -209,9 +210,13 @@ sub getNextTestNOID {
     if ( !exists $self->{testnoids} ) {
 
         $thisdb->type("application/json");
+#        my $url = "/"
+#          . $thisdb->database
+#          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"marc\"";
+
         my $url = "/"
           . $thisdb->database
-          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"marc\"";
+          . "/_design/metadatabus/_view/updateinternalmetas?reduce=false&startkey=\[1,true\]&endkey=\[1,true,\{\}\]";
 
         my $res =
           $thisdb->get( $url, {}, { deserializer => 'application/json' } );
