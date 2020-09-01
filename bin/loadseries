@@ -20,7 +20,7 @@ use Digest::MD5 qw(md5 md5_hex md5_base64);
 
     package restclient;
 
-    use Moose;
+    use Moo;
     with 'Role::REST::Client';
 }
 
@@ -188,7 +188,6 @@ if ( !$noseries ) {
         # Convert string label to IIIF Text Value
         my %label = ( "none" => [ $seriesslug->{doc}->{label} ] );
         $seriesslugs{ $seriesslug->{id} } = {
-            public      => 1,
             collections => $seriesslug->{doc}->{collections},
             label       => \%label
         };
@@ -210,7 +209,6 @@ if ( !$noseries ) {
         # Convert string label to IIIF Text Value
         my %label = ( "none" => [ $seriesslug->{doc}->{label} ] );
         $seriesslugs{ $seriesslug->{id} } = {
-            public      => 0,
             collections => $seriesslug->{doc}->{collections},
             label       => \%label
         };
@@ -280,7 +278,6 @@ foreach my $capcol ( keys %capcols ) {
             slug    => $capcol,
             label   => $capcols{$capcol}{'label'},
             summary => $capcols{$capcol}{'summary'},
-            public  => 1,
             ordered => 0
         }
     );
@@ -368,7 +365,6 @@ if ( !$noseries ) {
         my $seriesnoid = findCreateCollection(
             {
                 slug    => $serieskey,
-                public  => $seriesslugs{$serieskey}->{public},
                 label   => $seriesslugs{$serieskey}->{label},
                 ordered => 1
             }
@@ -796,24 +792,6 @@ sub findCreateCollection {
         $collectionentries{$noid}{label}   = $args->{label};
         $collectionentries{$noid}{updated} = 1;
         print "Set label for $noid\n" if ($debug);
-    }
-
-    if ( exists $args->{public} ) {
-        if ( ( $args->{public} )
-            && !exists $collectionentries{$noid}{public} )
-        {
-            $collectionentries{$noid}{public} =
-              DateTime->now()->iso8601() . 'Z';
-            $collectionentries{$noid}{updated} = 1;
-            print "Set public for $noid\n" if ($debug);
-        }
-        if ( !( $args->{public} )
-            && exists $collectionentries{$noid}{public} )
-        {
-            delete $collectionentries{$noid}{public};
-            $collectionentries{$noid}{updated} = 1;
-            print "remove public for $noid\n" if ($debug);
-        }
     }
 
     if ( exists $args->{ordered} ) {

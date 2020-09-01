@@ -30,7 +30,7 @@ CIHM::Meta::SolrStream - Stream cosearch from CouchDB to Solr.
 
     package CIHM::Meta::SolrStream::Solr;
 
-    use Moose;
+    use Moo;
     with 'Role::REST::Client';
 
 }

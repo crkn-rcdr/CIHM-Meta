@@ -1,4 +1,4 @@
-package CIHM::Meta::Smelter::Worker;
+package CIHM::Meta::Hammer2::Worker;
 
 use strict;
 use Carp;
@@ -10,20 +10,13 @@ use Log::Log4perl;
 
 use CIHM::Swift::Client;
 use CIHM::Meta::REST::cantaloupe;
-use CIHM::Meta::REST::canvas;
-use CIHM::Meta::REST::dipstaging;
 use CIHM::Meta::REST::manifest;
-use CIHM::Meta::Smelter::Process;
+use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::canvas;
+use CIHM::Meta::REST::internalmeta;
+use CIHM::Meta::Hammer2::Process;
 
 our $self;
-
-{
-
-    package restclient;
-
-    use Moo;
-    with 'Role::REST::Client';
-}
 
 sub initworker {
     my $configpath = shift;
@@ -53,43 +46,46 @@ sub initworker {
         croak "Missing <cantaloupe> configuration block in config\n";
     }
 
-    # Undefined if no <canvas> config block
-    if ( exists $confighash{canvas} ) {
-        $self->{canvasdb} = new CIHM::Meta::REST::canvas(
-            server      => $confighash{canvas}{server},
-            database    => $confighash{canvas}{database},
-            type        => 'application/json',
-            clientattrs => { timeout => 3600 },
-        );
-    }
-    else {
-        croak "Missing <canvas> configuration block in config\n";
-    }
-
-    # Undefined if no <dipstaging> config block
-    if ( exists $confighash{dipstaging} ) {
-        $self->{dipstagingdb} = new CIHM::Meta::REST::dipstaging(
-            server      => $confighash{dipstaging}{server},
-            database    => $confighash{dipstaging}{database},
-            type        => 'application/json',
-            clientattrs => { timeout => 3600 },
-        );
-    }
-    else {
-        croak "Missing <dipstaging> configuration block in config\n";
-    }
-
     # Undefined if no <manifest> config block
     if ( exists $confighash{manifest} ) {
         $self->{manifestdb} = new CIHM::Meta::REST::manifest(
             server      => $confighash{manifest}{server},
             database    => $confighash{manifest}{database},
             type        => 'application/json',
+            conf        => $configpath,
             clientattrs => { timeout => 3600 },
         );
     }
     else {
         croak "Missing <manifest> configuration block in config\n";
+    }
+
+    # Undefined if no <collection> config block
+    if ( exists $confighash{collection} ) {
+        $self->{collectiondb} = new CIHM::Meta::REST::collection(
+            server      => $confighash{collection}{server},
+            database    => $confighash{collection}{database},
+            type        => 'application/json',
+            conf        => $configpath,
+            clientattrs => { timeout => 3600 },
+        );
+    }
+    else {
+        croak "Missing <collection> configuration block in config\n";
+    }
+
+    # Undefined if no <canvas> config block
+    if ( exists $confighash{canvas} ) {
+        $self->{canvasdb} = new CIHM::Meta::REST::canvas(
+            server      => $confighash{canvas}{server},
+            database    => $confighash{canvas}{database},
+            type        => 'application/json',
+            conf        => $configpath,
+            clientattrs => { timeout => 3600 },
+        );
+    }
+    else {
+        croak "Missing <canvas> configuration block in config\n";
     }
 
     # Undefined if no <swift> config block
@@ -109,15 +105,18 @@ sub initworker {
         croak "No <swift> configuration block in " . $self->configpath . "\n";
     }
 
-    if ( exists $confighash{noid} ) {
-        $self->{noidsrv} = new restclient(
-            server      => $confighash{noid},
+    # Undefined if no <internalmeta2> config block
+    if ( exists $confighash{internalmeta2} ) {
+        $self->{internalmetadb} = new CIHM::Meta::REST::internalmeta(
+            server      => $confighash{internalmeta2}{server},
+            database    => $confighash{internalmeta2}{database},
             type        => 'application/json',
-            clientattrs => { timeout => 3600 }
+            conf        => $configpath,
+            clientattrs => { timeout => 3600 },
         );
     }
     else {
-        croak "missing noid= in configuration\n";
+        croak "Missing <internalmeta2> configuration block in config\n";
     }
 }
 
@@ -127,19 +126,9 @@ sub log {
     return $self->{logger};
 }
 
-sub canvasdb {
+sub swift {
     my $self = shift;
-    return $self->{canvasdb};
-}
-
-sub dipstagingdb {
-    my $self = shift;
-    return $self->{dipstagingdb};
-}
-
-sub manifestdb {
-    my $self = shift;
-    return $self->{manifestdb};
+    return $self->{swift};
 }
 
 sub cantaloupe {
@@ -147,36 +136,46 @@ sub cantaloupe {
     return $self->{cantaloupe};
 }
 
-sub swift {
+sub manifestdb {
     my $self = shift;
-    return $self->{swift};
+    return $self->{manifestdb};
 }
 
-sub noidsrv {
+sub collectiondb {
     my $self = shift;
-    return $self->{noidsrv};
+    return $self->{collectiondb};
+}
+
+sub canvasdb {
+    my $self = shift;
+    return $self->{canvasdb};
+}
+
+sub internalmetadb {
+    my $self = shift;
+    return $self->{internalmetadb};
 }
 
 sub warnings {
     my $warning = shift;
     our $self;
-    my $aip = "unknown";
+    my $noid = "unknown";
 
     # Strip wide characters before  trying to log
     ( my $stripped = $warning ) =~ s/[^\x00-\x7f]//g;
 
     if ($self) {
         $self->{message} .= $warning;
-        $aip = $self->{aip};
-        $self->log->warn( $aip . ": $stripped" );
+        $noid = $self->{noid};
+        $self->log->warn( $noid . ": $stripped" );
     }
     else {
         say STDERR "$warning\n";
     }
 }
 
-sub smelt {
-    my ( $aip, $configpath ) = @_;
+sub swing {
+    my ( $noid, $type, $configpath ) = @_;
     our $self;
 
     # Capture warnings
@@ -186,55 +185,67 @@ sub smelt {
         initworker($configpath);
     }
 
-    $self->{aip}     = $aip;
+    # Debugging: http://lists.schmorp.de/pipermail/anyevent/2017q2/000870.html
+    #  $SIG{CHLD} = 'IGNORE';
+
+    $self->{noid}    = $noid;
     $self->{message} = '';
 
-    AE::log debug => "$aip Before ($$)";
+    $self->log->info("Processing $noid");
+
+    AE::log debug => "$noid Before ($$)";
 
     my $status;
 
     # Handle and record any errors
     try {
         $status = 1;
-        new CIHM::Meta::Smelter::Process(
+        new CIHM::Meta::Hammer2::Process(
             {
-                aip                => $aip,
-                configpath         => $configpath,
+                noid               => $noid,
+                type               => $type,
                 log                => $self->log,
-                canvasdb           => $self->canvasdb,
-                dipstagingdb       => $self->dipstagingdb,
-                manifestdb         => $self->manifestdb,
-                cantaloupe         => $self->cantaloupe,
                 swift              => $self->swift,
                 preservation_files => $self->{preservation_files},
                 access_metadata    => $self->{access_metadata},
                 access_files       => $self->{access_files},
-                noidsrv            => $self->noidsrv
+                cantaloupe         => $self->cantaloupe,
+                manifestdb         => $self->manifestdb,
+                collectiondb       => $self->collectiondb,
+                canvasdb           => $self->canvasdb,
+                internalmetadb     => $self->internalmetadb,
             }
         )->process;
     }
     catch {
         $status = 0;
-        $self->log->error("$aip: $_");
+        $self->log->error("$noid: $_");
         $self->{message} .= "Caught: " . $_;
     };
-    $self->postResults( $aip, $status, $self->{message} );
+    $self->postResults( $noid, $type, $status, $self->{message} );
 
-    AE::log debug => "$aip After ($$)";
+    AE::log debug => "$noid After ($$)";
 
-    return ($aip);
+    return ($noid);
 }
 
 sub postResults {
-    my ( $self, $aip, $status, $message ) = @_;
+    my ( $self, $noid, $type, $status, $message ) = @_;
 
-    $self->dipstagingdb->update_basic(
-        $aip,
+    my $thisdb;
+    if ( $type eq "manifest" ) {
+        $thisdb = $self->manifestdb;
+    }
+    else {
+        $thisdb = $self->collectiondb;
+    }
+    $thisdb->update_basic(
+        $noid,
         {
-            "smelt" => encode_json(
+            "updateInternalmeta" => encode_json(
                 {
-                    "succeeded" => ( $status ? JSON::true : JSON::false ),
-                    "message" => $message,
+                    "succeeded" => $status,
+                    "message"   => $message,
                 }
             )
         }

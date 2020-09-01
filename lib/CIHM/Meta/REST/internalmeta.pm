@@ -72,7 +72,7 @@ sub update_basic_full {
     my ( $res, $code, $data );
 
     # This encoding makes $updatedoc variables available as form data
-    $self->type("application/x-www-form-urlencoded");
+    $self->type("application/json");
     $res = $self->post(
         "/" . $self->{database} . "/_design/tdr/_update/basic/" . $uid,
         $updatedoc, { deserializer => 'application/json' } );
@@ -127,7 +127,7 @@ sub put_attachment {
     }
     else {
         warn "put_attachment($uid) HEAD return code: " . $res->code . "\n";
-        return;
+        return $res->code;
     }
     $self->clear_headers;
     $self->set_header( 'If-Match' => $revision );
@@ -149,13 +149,13 @@ sub get_aip {
     my ( $self, $uid ) = @_;
 
     $self->type("application/json");
-    my $res = $self->get( "/" . $self->{database} . "/$uid",
-        {}, { deserializer => 'application/json' } );
+    my $url = "/" . $self->{database} . "/$uid";
+    my $res = $self->get( $url, {}, { deserializer => 'application/json' } );
     if ( $res->code == 200 ) {
         return $res->data;
     }
     else {
-        warn "get_aip return code: " . $res->code . "\n";
+        warn "get_aip ($url) return code: " . $res->code . "\n";
         return;
     }
 }

@@ -1,0 +1,196 @@
+#!/usr/bin/env perl
+
+use strict;
+use utf8;
+use warnings;
+use Getopt::Long;
+use Config::General;
+use URI::Escape;
+use JSON;
+use CIHM::Meta::REST::internalmeta;
+use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::manifest;
+use Data::Dumper;
+
+my $conf = "/etc/canadiana/tdr/tdr.conf";
+my $noupdate;
+my $debug;
+
+GetOptions(
+    'conf:s'   => \$conf,
+    'noupdate' => \$noupdate,
+    'debug'    => \$debug
+);
+
+my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
+
+# Undefined if no <collection> config block
+my $collectiondb;
+if ( exists $confighash{collection} ) {
+    $collectiondb = new CIHM::Meta::REST::collection(
+        server      => $confighash{collection}{server},
+        database    => $confighash{collection}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <collection> configuration block in config\n";
+}
+
+# Undefined if no <manifest> config block
+my $manifestdb;
+if ( exists $confighash{manifest} ) {
+    $manifestdb = new CIHM::Meta::REST::manifest(
+        server      => $confighash{manifest}{server},
+        database    => $confighash{manifest}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <manifest> configuration block in config\n";
+}
+
+# Undefined if no <internalmeta> config block
+my $internalmetadb;
+if ( exists $confighash{internalmeta} ) {
+    $internalmetadb = new CIHM::Meta::REST::internalmeta(
+        server      => $confighash{internalmeta}{server},
+        database    => $confighash{internalmeta}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 3600 },
+    );
+}
+else {
+    die "Missing <internalmeta> configuration block in config\n";
+}
+
+my %manifests;
+my %collections;
+print "Loading slugs from 'internalmeta'...\n";
+$internalmetadb->type("application/json");
+my $request = "/"
+  . $internalmetadb->{database}
+  . "/_design/tdr/_view/doctype?reduce=false&include_docs=false";
+my $res =
+  $internalmetadb->get( $request, {}, { deserializer => 'application/json' } );
+if ( $res->code != 200 ) {
+    die "doctype return code: " . $res->code . "\n";
+}
+foreach my $doc ( @{ $res->data->{rows} } ) {
+    my $slug = $doc->{id};
+    my $command =
+      ( $doc->{key}->[0] eq "approved" ) ? "makepublic" : "makeprivate";
+    my $type = $doc->{key}->[2];
+    if ( $doc->{key}->[2] eq 'document' ) {
+        $manifests{$slug} = $command;
+    }
+    else {
+        $collections{$slug} = $command;
+    }
+}
+
+print "Looking up slugs in collection database...\n";
+$request = "/" . $collectiondb->{database} . "/_design/access/_view/slug";
+my @keys = keys %collections;
+$collectiondb->type("application/json");
+$res = $collectiondb->post(
+    $request,
+    {
+        keys => \@keys
+    },
+    { deserializer => 'application/json' }
+);
+if ( $res->code != 200 ) {
+    die "CouchDB: \"$request\" return code: " . $res->code . "\n";
+}
+
+foreach my $doc ( @{ $res->data->{rows} } ) {
+    if ( exists $doc->{id} ) {
+        my $command = delete $collections{ $doc->{key} };
+        if (   ( ( $command eq 'makepublic' ) && !( $doc->{value}->{public} ) )
+            || ( ( $command eq 'makeprivate' ) && $doc->{value}->{public} ) )
+        {
+            print $doc->{key} . " == " . $doc->{id} . " --> $command\n";
+            if ( !$noupdate ) {
+                my $request2 = "/"
+                  . $collectiondb->{database}
+                  . "/_design/metadatabus/_update/basic/"
+                  . uri_escape( $doc->{id} );
+                my $updatedoc = { $command => JSON::true };
+                my $res2 = $collectiondb->post( $request2, $updatedoc,
+                    { deserializer => 'application/json' } );
+
+                if ( $res2->code != 200 && $res2->code != 201 ) {
+                    die "CouchDB: \"$request2\" return code: "
+                      . $res2->code . "\n";
+                }
+            }
+        }
+    }
+    else {
+        print Data::Dumper->Dump( [$doc], ["Collection without ID"] );
+    }
+}
+
+print "Looking up slugs in manifest database...\n";
+$request = "/" . $manifestdb->{database} . "/_design/access/_view/slug";
+@keys    = keys %manifests;
+$manifestdb->type("application/json");
+$res = $manifestdb->post(
+    $request,
+    {
+        keys => \@keys
+    },
+    { deserializer => 'application/json' }
+);
+if ( $res->code != 200 ) {
+    die "CouchDB: \"$request\" return code: " . $res->code . "\n";
+}
+
+foreach my $doc ( @{ $res->data->{rows} } ) {
+    if ( exists $doc->{id} ) {
+
+        my $command = delete $manifests{ $doc->{key} };
+        if (   ( ( $command eq 'makepublic' ) && !( $doc->{value}->{public} ) )
+            || ( ( $command eq 'makeprivate' ) && $doc->{value}->{public} ) )
+        {
+            print $doc->{key} . " == " . $doc->{id} . " --> $command\n";
+            if ( !$noupdate ) {
+                my $request2 = "/"
+                  . $manifestdb->{database}
+                  . "/_design/metadatabus/_update/basic/"
+                  . uri_escape( $doc->{id} );
+                my $updatedoc = { $command => JSON::true };
+                my $res2 = $manifestdb->post( $request2, $updatedoc,
+                    { deserializer => 'application/json' } );
+
+                if ( $res2->code != 200 && $res2->code != 201 ) {
+                    die "CouchDB: \"$request2\" return code: "
+                      . $res2->code . "\n";
+                }
+            }
+        }
+    }
+    else {
+        print Data::Dumper->Dump( [$doc], ["Collection without ID"] );
+    }
+}
+
+print "\n\nApproved collection slugs not found:\n";
+foreach my $slug ( keys %collections ) {
+    if ( $collections{$slug} eq "makepublic" ) {
+        print $slug. "\n";
+    }
+}
+
+print "\n\nApproved manifest slugs not found:\n";
+foreach my $slug ( keys %manifests ) {
+    if ( $manifests{$slug} eq "makepublic" ) {
+        print $slug. "\n";
+    }
+}

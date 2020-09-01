@@ -3,7 +3,7 @@ package CIHM::Meta::REST::cantaloupe;
 use DateTime;
 use Crypt::JWT;
 
-use Moose;
+use Moo;
 with 'Role::REST::Client';
 use Types::Standard qw(HashRef Str Int Enum HasMethods);
 
