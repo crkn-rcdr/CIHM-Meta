@@ -785,9 +785,15 @@ sub process_components {
           $self->presentdoc->{$thisdoc}->{'key'};
         $components->{ $self->presentdoc->{$thisdoc}->{'key'} }->{'label'} =
           $self->presentdoc->{$thisdoc}->{'label'};
-        $components->{ $self->presentdoc->{$thisdoc}->{'key'} }
-          ->{'canonicalMaster'} =
-          $self->presentdoc->{$thisdoc}->{'canonicalMaster'};
+        if ( exists $self->presentdoc->{$thisdoc}->{'canonicalMaster'} ) {
+            $components->{ $self->presentdoc->{$thisdoc}->{'key'} }
+              ->{'canonicalMaster'} =
+              $self->presentdoc->{$thisdoc}->{'canonicalMaster'};
+        }
+        if ( exists $self->presentdoc->{$thisdoc}->{'noid'} ) {
+            $components->{ $self->presentdoc->{$thisdoc}->{'key'} }->{'noid'} =
+              $self->presentdoc->{$thisdoc}->{'noid'};
+        }
         if ( exists $self->presentdoc->{$thisdoc}->{'canonicalMasterWidth'} ) {
             $components->{ $self->presentdoc->{$thisdoc}->{'key'} }
               ->{'canonicalMasterWidth'} =
