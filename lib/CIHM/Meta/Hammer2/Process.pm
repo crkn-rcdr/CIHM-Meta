@@ -170,7 +170,7 @@ sub process {
         if (   !( exists $self->document->{'ordered'} )
             || !( $self->document->{'ordered'} ) )
         {
-            warn "Nothing to do for unordered collections\n";
+            warn "Nothing to do for an unordered collection\n";
             return;
         }
     }
@@ -347,15 +347,13 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
                   if $ocr;
             }
         }
-
-        #        print Dumper ( \@canvasids, \@canvases );
     }
 
 ## Build update document and attachment
 
     $self->updatedoc->{'type'} = 'aip';
 
-    # Manifests are all 'document', ordered collections are 'series'
+    # Manifest is a 'document', ordered collection is a 'series'
     $self->updatedoc->{'sub-type'} = $self->attachment->[0]->{'type'};
 
 # If not public, then not approved in old system (clean up cosearch/copresentation docs)
@@ -375,36 +373,51 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
     }
 
 ## Determine what collections this manifest or collection is in
-    my @collections;
-    my @parents;
-    foreach
-      my $collection ( @{ $self->collectiondb->getCollections( $self->noid ) } )
-    {
-        if (   exists $collection->{value}
-            && exists $collection->{value}->{slug} )
+    my %collections;
+    my %orderedcollections;
+
+    sub findCollections {
+        my ( $self, $noid ) = @_;
+
+        foreach
+          my $collection ( @{ $self->collectiondb->getCollections($noid) } )
         {
-            if ( $collection->{value}->{ordered} ) {
-                push @parents, $collection->{value}->{slug};
-            }
-            else {
-                push @collections, $collection->{value}->{slug};
+            if (   exists $collection->{value}
+                && exists $collection->{value}->{slug} )
+            {
+                my $slug = $collection->{value}->{slug};
+                if ( !exists $collections{$slug} ) {
+                    $collections{$slug} = 1;
+                    $self->findCollections( $collection->{'id'} );
+                }
+                if ( $collection->{value}->{ordered} ) {
+                    $orderedcollections{$slug} = 1;
+                }
             }
         }
     }
-    if (@collections) {
-        $self->updatedoc->{collectionseq} = join( ',', @collections );
-    }
+    $self->findCollections( $self->noid );
 
-    # Ignore parent key from issueinfo records
+    # Ignore parent key from issueinfo records.
+    # Concept of 'parent' going away as part of retiring 'issueinfo' records.
     delete $self->attachment->[0]->{'pkey'};
+    my @parents = keys %orderedcollections;
     if (@parents) {
         if ( @parents != 1 ) {
             warn "A member of more than a single ordered collection\n";
         }
         my $parent = shift @parents;
         if ($parent) {
+
+            # Old platform didn't include 'series' records in collections.
+            delete $collections{$parent};
             $self->attachment->[0]->{'pkey'} = $parent;
+            $self->updatedoc->{'parent'} = $parent;
         }
+    }
+
+    if ( keys %collections ) {
+        $self->updatedoc->{collectionseq} = join( ',', keys %collections );
     }
 
     # Create document if it doesn't already exist
