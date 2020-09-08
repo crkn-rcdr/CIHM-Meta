@@ -373,35 +373,15 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
     }
 
 ## Determine what collections this manifest or collection is in
-    my %collections;
-    my %orderedcollections;
+    $self->{collections}        = {};
+    $self->{orderedcollections} = {};
 
-    sub findCollections {
-        my ( $self, $noid ) = @_;
-
-        foreach
-          my $collection ( @{ $self->collectiondb->getCollections($noid) } )
-        {
-            if (   exists $collection->{value}
-                && exists $collection->{value}->{slug} )
-            {
-                my $slug = $collection->{value}->{slug};
-                if ( !exists $collections{$slug} ) {
-                    $collections{$slug} = 1;
-                    $self->findCollections( $collection->{'id'} );
-                }
-                if ( $collection->{value}->{ordered} ) {
-                    $orderedcollections{$slug} = 1;
-                }
-            }
-        }
-    }
     $self->findCollections( $self->noid );
 
     # Ignore parent key from issueinfo records.
     # Concept of 'parent' going away as part of retiring 'issueinfo' records.
     delete $self->attachment->[0]->{'pkey'};
-    my @parents = keys %orderedcollections;
+    my @parents = keys %{ $self->{orderedcollections} };
     if (@parents) {
         if ( @parents != 1 ) {
             warn "A member of more than a single ordered collection\n";
@@ -410,14 +390,15 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
         if ($parent) {
 
             # Old platform didn't include 'series' records in collections.
-            delete $collections{$parent};
+            delete $self->{collections}->{$parent};
             $self->attachment->[0]->{'pkey'} = $parent;
             $self->updatedoc->{'parent'} = $parent;
         }
     }
 
-    if ( keys %collections ) {
-        $self->updatedoc->{collectionseq} = join( ',', keys %collections );
+    if ( keys %{ $self->{collections} } ) {
+        $self->updatedoc->{collectionseq} =
+          join( ',', keys %{ $self->{collections} } );
     }
 
     # Create document if it doesn't already exist
@@ -432,9 +413,28 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
             updatedoc => $self->updatedoc
         }
     );
-
     if ( $return != 201 ) {
         die "Return code $return for internalmetadb->put_attachment($slug)\n";
+    }
+}
+
+sub findCollections {
+    my ( $self, $noid ) = @_;
+
+    foreach my $collection ( @{ $self->collectiondb->getCollections($noid) } ) {
+
+        if (   exists $collection->{value}
+            && exists $collection->{value}->{slug} )
+        {
+            my $slug = $collection->{value}->{slug};
+            if ( !exists $self->{collections}->{$slug} ) {
+                $self->{collections}->{$slug} = 1;
+                $self->findCollections( $collection->{'id'} );
+            }
+            if ( $collection->{value}->{ordered} ) {
+                $self->{orderedcollections}->{$slug} = 1;
+            }
+        }
     }
 }
 
