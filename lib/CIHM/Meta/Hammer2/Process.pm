@@ -349,6 +349,22 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
         }
     }
 
+    # Schema doesn't allow both 'canvases' (Scanned images)
+    # and 'masterPages' (Born Digital PDF)
+    if ( $self->document->{'masterPages'} ) {
+        foreach my $i ( 0 .. ( @{ $self->document->{'masterPages'} } - 1 ) ) {
+            $self->attachment->[ $i + 1 ]->{'label'} =
+              $self->getIIIFText( $self->document->{'masterPages'}->[$i] );
+            $self->attachment->[ $i + 1 ]->{'type'}      = 'page';
+            $self->attachment->[ $i + 1 ]->{'seq'}       = $i + 1;
+            $self->attachment->[ $i + 1 ]->{'depositor'} = $depositor;
+            $self->attachment->[ $i + 1 ]->{'identifier'} =
+              [ $objid . "." . ( $i + 1 ) ];
+            $self->attachment->[ $i + 1 ]->{'pkey'} = $slug;
+            $self->attachment->[ $i + 1 ]->{'key'} = $slug . "." . ( $i + 1 );
+        }
+    }
+
 ## Build update document and attachment
 
     $self->updatedoc->{'type'} = 'aip';
