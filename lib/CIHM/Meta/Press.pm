@@ -121,6 +121,11 @@ sub skip {
     return $self->{args}->{skip};
 }
 
+sub descending {
+    my $self = shift;
+    return $self->{args}->{descending};
+}
+
 sub log {
     my $self = shift;
     return $self->{logger};
@@ -149,8 +154,12 @@ sub copresentation {
 sub Press {
     my ($self) = @_;
 
-    $self->log->info(
-        "Press time: conf=" . $self->configpath . " skip=" . $self->skip );
+    $self->log->info( "Press time: conf="
+          . $self->configpath
+          . " skip="
+          . $self->skip
+          . " descending="
+          . ( $self->descending  ? "true" : "false"));
 
     # Scope of variables for warnings() requires these be in object,
     # and initialized with each new AIP being processed.
@@ -208,20 +217,21 @@ sub Press {
 sub getNextAIP {
     my $self = shift;
 
-    my $skipparam = '';
+    my $extraparam = '';
     if ( $self->skip ) {
-        $skipparam = "&skip=" . $self->skip;
+        $extraparam = "&skip=" . $self->skip;
+    }
+    if ( $self->descending ) {
+        $extraparam = '&descending=true';
     }
 
     $self->internalmeta->type("application/json");
-    my $res = $self->internalmeta->get(
-        "/"
-          . $self->internalmeta->database
-          . "/_design/tdr/_view/pressq?reduce=false&limit=1"
-          . $skipparam,
-        {},
-        { deserializer => 'application/json' }
-    );
+    my $url = "/"
+      . $self->internalmeta->database
+      . "/_design/tdr/_view/pressq?reduce=false&limit=1"
+      . $extraparam;
+    my $res = $self->internalmeta->get( $url, {},
+        { deserializer => 'application/json' } );
     if ( $res->code == 200 ) {
         if ( exists $res->data->{rows} ) {
             return ( $res->data->{rows}[0]->{id},
@@ -230,7 +240,7 @@ sub getNextAIP {
         return;
     }
     else {
-        die "_view/pressq GET return code: " . $res->code . "\n";
+        die "$url GET return code: " . $res->code . "\n";
     }
     return;
 }

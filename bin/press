@@ -18,15 +18,18 @@ flock( FH, LOCK_EX | LOCK_NB )
 
 my $conf = "/etc/canadiana/tdr/tdr.conf";
 my $skip = 0;
+my $descending;
 GetOptions(
-    'conf:s' => \$conf,
-    'skip:i' => \$skip
+    'conf:s'     => \$conf,
+    'skip:i'     => \$skip,
+    'descending' => \$descending
 );
 
 CIHM::Meta::Press->new(
     {
         configpath => $conf,
-        skip       => $skip
+        skip       => $skip,
+        descending => $descending
     }
 )->Press;
 
