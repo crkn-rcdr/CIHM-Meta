@@ -6,17 +6,10 @@ use FindBin;
 use lib "$FindBin::RealBin/../lib";
 use Getopt::Long;
 use CIHM::Meta::Smelter;
-
 use Fcntl qw(:DEFAULT :flock);
-my $lockfile = '/var/lock/tdr/smelter';
-
-# Only allow one instance to run at a time..
-sysopen( FH, $lockfile, O_WRONLY | O_CREAT )
-  or die "can't open lockfile=$lockfile: $!\n";
-flock( FH, LOCK_EX | LOCK_NB )
-  or exit 0;
 
 my $conf     = "/etc/canadiana/tdr/tdr.conf";
+my $lockfile = '/var/lock/tdr/smelter';
 my $skip     = 0;
 my $maxprocs = 4;
 my $limit;
@@ -24,12 +17,19 @@ my $timelimit;
 my $descending;
 GetOptions(
     'conf:s'      => \$conf,
+    'lockfile:s'  => \$lockfile,
     'skip:i'      => \$skip,
     'maxprocs:i'  => \$maxprocs,
     'limit:i'     => \$limit,
     'timelimit:i' => \$timelimit,
     'descending'  => \$descending
 );
+
+# Only allow one instance to run at a time..
+sysopen( FH, $lockfile, O_WRONLY | O_CREAT )
+  or die "can't open lockfile=$lockfile: $!\n";
+flock( FH, LOCK_EX | LOCK_NB )
+  or exit 0;
 
 CIHM::Meta::Smelter->new(
     {

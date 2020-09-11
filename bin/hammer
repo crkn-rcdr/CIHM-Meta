@@ -6,28 +6,28 @@ use FindBin;
 use lib "$FindBin::RealBin/../lib";
 use Getopt::Long;
 use CIHM::Meta::Hammer;
-
 use Fcntl qw(:DEFAULT :flock);
-my $lockfile = '/var/lock/tdr/hammer';
-
-# Only allow one instance to run at a time..
-sysopen( FH, $lockfile, O_WRONLY | O_CREAT )
-  or die "can't open lockfile=$lockfile: $!\n";
-flock( FH, LOCK_EX | LOCK_NB )
-  or exit 0;
 
 my $conf     = "/etc/canadiana/tdr/tdr.conf";
+my $lockfile = '/var/lock/tdr/hammer';
 my $skip     = 0;
 my $maxprocs = 4;
 my $limit;
 my $timelimit;
 GetOptions(
     'conf:s'      => \$conf,
+    'lockfile:s'  => \$lockfile,
     'skip:i'      => \$skip,
     'maxprocs:i'  => \$maxprocs,
     'limit:i'     => \$limit,
     'timelimit:i' => \$timelimit
 );
+
+# Only allow one instance to run at a time..
+sysopen( FH, $lockfile, O_WRONLY | O_CREAT )
+  or die "can't open lockfile=$lockfile: $!\n";
+flock( FH, LOCK_EX | LOCK_NB )
+  or exit 0;
 
 CIHM::Meta::Hammer->new(
     {
