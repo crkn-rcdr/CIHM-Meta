@@ -265,7 +265,8 @@ foreach my $collection ( @{ $res->data->{rows} } ) {
             @{ $collectionentries{$noid}{items} } =
               listToId( @{ $collectionentries{$noid}{items} } );
             $collectionentries{$noid}{updated} = 1;
-            print "Noid=$noid items updated\n" if ($debug);
+
+            #print "Noid=$noid items updated\n" if ($debug);
         }
     }
 }
@@ -353,7 +354,8 @@ if ($clearitems) {
         {
             $collectionentries{$noid}{items}   = [];
             $collectionentries{$noid}{updated} = 1;
-            print "Clearitems $noid\n" if ($debug);
+
+            #print "Clearitems $noid\n" if ($debug);
         }
     }
 }
@@ -469,13 +471,19 @@ sub updateSeriesItems {
         }
         my @items;
         foreach my $item ( @{ $colres->data->{rows} } ) {
+            my $approved = $item->{value}->{approved};
             my $itemslug = $item->{id};
             my $itemnoid = getNoidFromSlug($itemslug);
             if ($itemnoid) {
                 push @items, $itemnoid;
             }
             else {
-                print "  No noid for issue AIPID=$itemslug\n";
+                if ($approved) {
+                    print "  No noid for issue AIPID=$itemslug\n";
+                }
+                elsif ($debug) {
+                    print "  No noid for unapproved issue AIPID=$itemslug\n";
+                }
             }
         }
         findCreateCollection(
@@ -499,7 +507,7 @@ sub updateCollectionItems {
         my $colres = $internalmeta->get(
             "/"
               . $internalmeta->{database}
-              . "/_design/tdr/_view/coltitles?reduce=false&include_docs=false&startkey=\"$slug\"&endkey=\"$slug\ufff0\'\"",
+              . "/_design/tdr/_view/collections?reduce=false&include_docs=false&key=\"$slug\"",
             {},
             { deserializer => 'application/json' }
         );
@@ -541,7 +549,8 @@ sub updateDMD {
         # Transition/testing -- delete outdated/invalid entry
         $collectionentries{$noid}{'_deleted'} = JSON::true;
         $collectionentries{$noid}{updated} = 1;
-        print "updateDMD $noid\n" if ($debug);
+
+        #print "updateDMD $noid\n" if ($debug);
         return;
     }
 
@@ -604,9 +613,9 @@ sub updateDMD {
     if ( ( !defined $collectionentries{$noid}{dmdType} )
         || $collectionentries{$noid}{dmdType} ne $mdtypel )
     {
-        print "mdtype updated $noid\n"
-          . Dumper( $collectionentries{$noid}{dmdType}, $mdtypel )
-          if ($debug);
+        #print "mdtype updated $noid\n"
+        #  . Dumper( $collectionentries{$noid}{dmdType}, $mdtypel )
+        #  if ($debug);
         $collectionentries{$noid}{dmdType} = $mdtypel;
         $collectionentries{$noid}{updated} = 1;
     }
@@ -731,21 +740,24 @@ sub findCreateCollection {
         $collectionentries{$noid}{slug}    = $slug;
         $collectionentries{$noid}{updated} = 1;
         $noidfromslug{$slug}               = $noid;
-        print " $collectionentries{$noid}{slug} ne $slug \n" if ($debug);
+
+        #print " $collectionentries{$noid}{slug} ne $slug \n" if ($debug);
     }
 
     # Clear old entry if exists
     if ( exists $collectionentries{$noid}{collections} ) {
         delete $collectionentries{$noid}{collections};
         $collectionentries{$noid}{updated} = 1;
-        print " delete $noid {collections} \n" if ($debug);
+
+        #print " delete $noid {collections} \n" if ($debug);
     }
 
     # Ensure that items is at least empty
     if ( ref $collectionentries{$noid}{items} ne ref [] ) {
         $collectionentries{$noid}{items}   = [];
         $collectionentries{$noid}{updated} = 1;
-        print "empty {items} $noid\n" if ($debug);
+
+        #print "empty {items} $noid\n" if ($debug);
     }
 
     # Appending primarily used for unordered collections
@@ -758,7 +770,8 @@ sub findCreateCollection {
         if (@toadd) {
             push @{ $collectionentries{$noid}{items} }, listToId(@toadd);
             $collectionentries{$noid}{updated} = 1;
-            print "Some items to add:  @toadd   $noid\n" if ($debug);
+
+            # print "Some items to add:  @toadd   $noid\n" if ($debug);
         }
     }
 
@@ -776,14 +789,16 @@ sub findCreateCollection {
               listToId( @{ $args->{oitems} } );
 
             $collectionentries{$noid}{updated} = 1;
-            print "Set oitems $noid\n" if ($debug);
+
+            #print "Set oitems $noid\n" if ($debug);
         }
     }
 
     if ( ref $collectionentries{$noid}{label} ne ref {} ) {
         $collectionentries{$noid}{label}   = {};
         $collectionentries{$noid}{updated} = 1;
-        print "Set {} label on $noid\n" if ($debug);
+
+        #print "Set {} label on $noid\n" if ($debug);
     }
     if ( defined $args->{label}
         && ( !isLabelEqual( $collectionentries{$noid}{label}, $args->{label} ) )
@@ -791,7 +806,8 @@ sub findCreateCollection {
     {
         $collectionentries{$noid}{label}   = $args->{label};
         $collectionentries{$noid}{updated} = 1;
-        print "Set label for $noid\n" if ($debug);
+
+        #print "Set label for $noid\n" if ($debug);
     }
 
     if ( exists $args->{ordered} ) {
@@ -800,7 +816,8 @@ sub findCreateCollection {
         {
             $collectionentries{$noid}{ordered} = JSON::true;
             $collectionentries{$noid}{updated} = 1;
-            print "Set ordered for $noid\n" if ($debug);
+
+            #print "Set ordered for $noid\n" if ($debug);
         }
         if (
             !( $args->{ordered} )
@@ -814,7 +831,8 @@ sub findCreateCollection {
         {
             $collectionentries{$noid}{ordered} = JSON::false;
             $collectionentries{$noid}{updated} = 1;
-            print "Set unordered for $noid\n" if ($debug);
+
+            #print "Set unordered for $noid\n" if ($debug);
         }
     }
 
@@ -868,7 +886,9 @@ sub validateRecord {
     close(FH);
 
     my $results;
-    open( FH, "kivik validate $tempname /home/tdr/Databases/$database/schema.json |" ) or die $!;
+    open( FH,
+        "kivik validate $tempname /home/tdr/Databases/$database/schema.json |" )
+      or die $!;
     {
         local $/;
         $results = <FH>;
