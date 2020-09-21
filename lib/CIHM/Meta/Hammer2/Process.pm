@@ -412,10 +412,10 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
         }
     }
 
-    if ( keys %{ $self->{collections} } ) {
-        $self->updatedoc->{collectionseq} =
-          join( ',', keys %{ $self->{collections} } );
-    }
+    # Always set collection -- will be '' if no collections.
+    $self->updatedoc->{collectionseq} =
+      join( ',', keys %{ $self->{collections} } );
+
 
     # Create document if it doesn't already exist
     $self->internalmetadb->update_basic_full( $slug, {} );
@@ -445,7 +445,8 @@ sub findCollections {
             my $slug = $collection->{value}->{slug};
             if ( !exists $self->{collections}->{$slug} ) {
                 $self->{collections}->{$slug} = 1;
-                $self->findCollections( $collection->{'id'} );
+
+# TODO: Just for checking match with old                $self->findCollections( $collection->{'id'} );
             }
             if ( $collection->{value}->{ordered} ) {
                 $self->{orderedcollections}->{$slug} = 1;
