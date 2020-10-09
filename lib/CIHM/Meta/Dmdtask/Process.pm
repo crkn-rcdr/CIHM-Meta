@@ -39,6 +39,7 @@ sub new {
         die "dmdtaskdb object parameter is mandatory\n";
     }
 
+    $self->{items} = [];
     return $self;
 }
 
@@ -68,13 +69,28 @@ sub dmdtaskdb {
     return $self->args->{dmdtaskdb};
 }
 
+sub items {
+    my $self = shift;
+    return $self->{items};
+}
+
+sub doc {
+    my $self = shift;
+    return $self->{doc};
+}
+
 # Top method
 sub process {
     my ($self) = @_;
 
-    if ($self->type eq "split") {
+    $self->{doc} = $self->dmdtaskdb->get_document( $self->taskid );
+    if ( !( $self->doc ) ) {
+        die "Couldn't load document\n";
+    }
+    if ( $self->type eq "split" ) {
         $self->doSplit();
-    } else {
+    }
+    else {
         $self->doStore();
     }
 }
@@ -82,13 +98,47 @@ sub process {
 sub doSplit {
     my ($self) = @_;
 
-    warn "Nothing to split here\n";
+    # Just a test.
+    @{$self->items} = (
+        {
+            "id"          => "testid1",
+            "accessidfound" => "oocihm.testid1",
+            "validated"   => JSON::true,
+            "message"     => ''
+        },
+        {
+            "id"          => "testid2",
+            "accessidfound" => "oocihm.testid2",
+            "validated"   => JSON::false,
+            "message"     => 'It is broke'
+        },
+        {
+            "id"          => "testid3",
+            "accessfound" => "oocihm.testid3",
+            "validated"   => JSON::true,
+            "message"     => 'Still chatty'
+        }
+    );
+    warn "This is only a test at the moment.";
+    $self->storeItems();
 }
 
 sub doStore {
     my ($self) = @_;
 
+    print Dumper ( $self->doc );
     warn "Nothing to store here\n";
+}
+
+sub storeItems {
+    my ($self) = @_;
+
+    $self->dmdtaskdb->update(
+        $self->taskid,
+        {
+            "items" => encode_json( $self->items )
+        }
+    );
 }
 
 1;
