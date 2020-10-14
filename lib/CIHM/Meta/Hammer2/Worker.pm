@@ -199,7 +199,7 @@ sub swing {
 
     # Handle and record any errors
     try {
-        $status = 1;
+        $status = JSON::true;
         new CIHM::Meta::Hammer2::Process(
             {
                 noid               => $noid,
@@ -218,7 +218,7 @@ sub swing {
         )->process;
     }
     catch {
-        $status = 0;
+        $status = JSON::false;
         $self->log->error("$noid: $_");
         $self->{message} .= "Caught: " . $_;
     };
