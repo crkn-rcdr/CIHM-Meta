@@ -280,6 +280,7 @@ sub process {
         foreach my $i ( 0 .. ( @canvases - 1 ) ) {
             if ( defined $canvases[$i]{'master'} ) {
                 my %master = %{ $canvases[$i]{'master'} };
+                my %ocrPdf = %{ $canvases[$i]{'ocrPdf'} };
 
                 $self->attachment->[ $i + 1 ]->{'canonicalMasterHeight'} =
                   $master{height}
@@ -296,6 +297,9 @@ sub process {
                 $self->attachment->[ $i + 1 ]->{'canonicalMasterMime'} =
                   $master{mime}
                   if ( defined $master{mime} );
+                $self->attachment->[ $i + 1 ]->{'canonicalDownload'} =
+                  $ocrPdf{path}
+                  if ( defined $ocrPdf{path} );
             }
 
             if ( defined $canvases[$i]{'ocrType'} ) {
