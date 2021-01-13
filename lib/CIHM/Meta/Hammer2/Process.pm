@@ -279,8 +279,12 @@ sub process {
 
         foreach my $i ( 0 .. ( @canvases - 1 ) ) {
             if ( defined $canvases[$i]{'master'} ) {
-                my %master = %{ $canvases[$i]{'master'} };
-                my %ocrPdf = %{ $canvases[$i]{'ocrPdf'} };
+                my %master;
+                %master = %{ $canvases[$i]{'master'} }
+                  if defined $canvases[$i]{'master'};
+                my %ocrPdf;
+                %ocrPdf = %{ $canvases[$i]{'ocrPdf'} }
+                  if defined $canvases[$i]{'ocrPdf'};
 
                 $self->attachment->[ $i + 1 ]->{'canonicalMasterHeight'} =
                   $master{height}
@@ -419,7 +423,6 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
     # Always set collection -- will be '' if no collections.
     $self->updatedoc->{collectionseq} =
       join( ',', keys %{ $self->{collections} } );
-
 
     # Create document if it doesn't already exist
     $self->internalmetadb->update_basic_full( $slug, {} );
