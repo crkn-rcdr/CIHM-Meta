@@ -129,10 +129,8 @@ sub process {
     my ($self) = shift;
 
     my $since = $self->getSince();
-    if ( $self->since && scalar( $self->since ) > 0 ) {
-        $since = scalar( $self->since );
-    }
-    if ( !$since ) {
+    $since = $self->since if defined $self->since;
+    if ( !defined $since ) {
         $since = 0;
     }
 
