@@ -210,6 +210,7 @@ sub getNextTestNOID {
     if ( !exists $self->{testnoids} ) {
 
         $thisdb->type("application/json");
+
 #        my $url = "/"
 #          . $thisdb->database
 #          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"marc\"";
@@ -251,15 +252,12 @@ sub getNextNOID {
     }
 
     $thisdb->type("application/json");
-    my $res = $thisdb->get(
-        "/"
-          . $thisdb->database
-          . "/_design/metadatabus/_view/updateinternalmetaq?reduce=false&descending=true&limit="
-          . $self->limit
-          . $skipparam,
-        {},
-        { deserializer => 'application/json' }
-    );
+    my $url = "/"
+      . $thisdb->database
+      . "/_design/metadatabus/_view/updateinternalmetaq?reduce=false&descending=true&limit="
+      . $self->limit
+      . $skipparam;
+    my $res = $thisdb->get( $url, {}, { deserializer => 'application/json' } );
     if ( $res->code == 200 ) {
         if ( exists $res->data->{rows} ) {
             foreach my $hr ( @{ $res->data->{rows} } ) {
@@ -271,8 +269,8 @@ sub getNextNOID {
         }
     }
     else {
-        warn "_view/updateinternalmetaq on "
-          . $thisdb->database
+        warn "$url on "
+          . $thisdb->sever
           . " GET return code: "
           . $res->code . "\n";
     }
