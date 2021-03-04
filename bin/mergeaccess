@@ -1,0 +1,252 @@
+#!/usr/bin/env perl
+
+use strict;
+use utf8;
+use warnings;
+use Getopt::Long;
+use Config::General;
+use CIHM::Meta::REST::access;
+use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::manifest;
+use Data::Dumper;
+use JSON;
+use DateTime;
+use List::Compare;
+use Digest::MD5 qw(md5 md5_hex md5_base64);
+
+my $conf = "/etc/canadiana/tdr/tdr.conf";
+my $debug;
+
+GetOptions(
+    'conf:s' => \$conf,
+    'debug'  => \$debug
+);
+
+my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
+
+# Undefined if no <collection> config block
+my $collectiondb;
+if ( exists $confighash{collection} ) {
+    $collectiondb = new CIHM::Meta::REST::collection(
+        server      => $confighash{collection}{server},
+        database    => $confighash{collection}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <collection> configuration block in config\n";
+}
+
+# Undefined if no <manifest> config block
+my $manifestdb;
+if ( exists $confighash{manifest} ) {
+    $manifestdb = new CIHM::Meta::REST::manifest(
+        server      => $confighash{manifest}{server},
+        database    => $confighash{manifest}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <manifest> configuration block in config\n";
+}
+
+# Undefined if no <access> config block
+my $accessdb;
+if ( exists $confighash{access} ) {
+    $accessdb = new CIHM::Meta::REST::access(
+        server      => $confighash{access}{server},
+        database    => $confighash{access}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <access> configuration block in config\n";
+}
+
+my $entriescount = 0;
+my @accessentries;
+my @aliases;
+
+#my $res;
+$| = 1;
+
+## Load existing 'collection' entries
+print "Load existing 'collection' entries...\n";
+
+my $res = $collectiondb->get(
+    "/" . $collectiondb->database . "/_all_docs?include_docs=true&limit=5",
+    {}, { deserializer => 'application/json' } );
+if ( $res->code != 200 ) {
+    if ( defined $res->response->content ) {
+        warn $res->response->content . "\n";
+    }
+    die $collectiondb->database
+      . "/_all_docs return code: "
+      . $res->code . "\n";
+}
+foreach my $collection ( @{ $res->data->{rows} } ) {
+    if ( substr( $collection->{key}, 0, 8 ) ne '_design/' ) {
+        processEntry( "collection", $collection->{doc} );
+    }
+}
+saveEntries();
+
+
+## Load existing 'manifest' entries
+print "Load existing 'manifest' entries...\n";
+
+my $done = 0;
+my $startkey;
+my $limit = 100;
+while ( !$done ) {
+
+    my $url = "/"
+      . $manifestdb->database
+      . "/_all_docs?include_docs=true&limit="
+      . ( $limit + 1 );
+    if ($startkey) {
+        $url .= "&startkey=" . encode_json($startkey);
+    }
+
+    print "url: $url\n";
+
+    $res = $manifestdb->get( $url, {}, { deserializer => 'application/json' } );
+    if ( $res->code != 200 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die $url . " return code: " . $res->code . "\n";
+    }
+    my $rowcount = scalar( @{ $res->data->{rows} } );
+
+    if ( $rowcount > $limit ) {
+        $startkey = $res->data->{rows}->[ $rowcount - 1 ]->{key};
+        $rowcount--;
+    }
+    else {
+        $done = 1;
+    }
+    print "EntriesCount: $entriescount Rowcount: $rowcount  "
+      . "Limit:$limit Done: $done "
+      . ( $startkey ? "StartKey: $startkey" : "" ) . "\n";
+
+    for ( 0 .. ( $rowcount - 1 ) ) {
+        my $collection = $res->data->{rows}->[$_];
+        if ( substr( $collection->{key}, 0, 8 ) ne '_design/' ) {
+            processEntry( "manifest", $collection->{doc} );
+        }
+    }
+    saveEntries();
+}
+
+# Pass hash of entries
+sub processEntry {
+    my ( $type, $entry ) = @_;
+
+    my $noid = $entry->{'_id'};
+    delete $entry->{'_rev'};
+    my $manifesttype = $entry->{type};
+    $entry->{type} = $type;
+
+    # Leave 'public' and 'updateInternalmeta' alone
+
+    # leave 'slug' alone, but separate out 'aliasedSlugs'
+    if ( exists $entry->{aliasedSlugs} ) {
+        foreach my $alias ( @{ $entry->{aliasedSlugs} } ) {
+            push @aliases, { slug => $alias, type => 'alias', to => $noid };
+        }
+        delete $entry->{aliasedSlugs};
+    }
+
+    # Move from IIIF
+    if ( exists $entry->{label} ) {
+        $entry->{label} = IIIF2txt( $entry->{label} );
+    }
+    if ( exists $entry->{summary} ) {
+        $entry->{summary} = IIIF2txt( $entry->{summary} );
+    }
+
+    # Behaviour is new, so set to default for type
+    if ( $type eq 'collection' ) {
+        $entry->{behavior} =
+          ( $entry->{'ordered'} ) ? "multi-part" : "unordered";
+        delete $entry->{'ordered'};
+    }
+    else {
+        $entry->{behavior} = "continuous";
+    }
+
+    # This only exists for a collection
+    if ( exists $entry->{items} ) {
+
+        # since items[].itemLabel never used, don't need to transform
+        $entry->{members} = $entry->{items};
+        delete $entry->{items};
+    }
+
+    # Manifests
+
+    # Never implimented, so clean out
+    delete $entry->{frozen};
+    delete $entry->{freezeParameters};
+
+    if ( $manifesttype eq "multicanvas" ) {
+        $entry->{of} = "canvases";
+
+        # convert labels
+        if ( exists $entry->{canvases} ) {
+            for ( 0 .. ( @{ $entry->{canvases} } - 1 ) ) {
+                my $i = $_;
+                if ( exists $entry->{canvases}->[$i]->{label} ) {
+                    $entry->{canvases}->[$i]->{label} =
+                      IIIF2txt( $entry->{canvases}->[$i]->{label} );
+                }
+            }
+        }
+    }
+
+    if ( $manifesttype eq "pdf" ) {
+        $entry->{of}   = "pdf";
+        $entry->{file} = $entry->{master};
+        delete $entry->{master};
+        if ( exists $entry->{masterPages} ) {
+            $entry->{pageLabels} = [];
+            for ( 0 .. ( @{ $entry->{masterPages} } - 1 ) ) {
+                my $i = $_;
+                $entry->{pageLabels}->[$i] =
+                  IIIF2txt( $entry->{masterPages} > [$i] );
+            }
+            delete $entry->{masterPages};
+        }
+    }
+
+    print Dumper($entry);
+    push @accessentries, $entry;
+    print ".";
+}
+
+sub saveEntries {
+
+    $entriescount += scalar(@accessentries);
+    print "-->EntriesCount: $entriescount\n";
+    @accessentries = ();
+    print Dumper ( \@aliases );
+
+}
+
+sub IIIF2txt {
+    my ($iiifTxt) = @_;
+
+    foreach my $lang ( keys %{$iiifTxt} ) {
+        $iiifTxt->{$lang} = pop @{ $iiifTxt->{$lang} };
+    }
+    return $iiifTxt;
+}
+
+print "Entries: $entriescount\n";
