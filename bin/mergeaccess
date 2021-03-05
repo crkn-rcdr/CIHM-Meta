@@ -13,13 +13,16 @@ use JSON;
 use DateTime;
 use List::Compare;
 use Digest::MD5 qw(md5 md5_hex md5_base64);
+use File::chdir;
 
 my $conf = "/etc/canadiana/tdr/tdr.conf";
+my $validate;
 my $debug;
 
 GetOptions(
-    'conf:s' => \$conf,
-    'debug'  => \$debug
+    'conf:s'   => \$conf,
+    'validate' => \$validate,
+    'debug'    => \$debug
 );
 
 my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
@@ -76,6 +79,7 @@ my @aliases;
 #my $res;
 $| = 1;
 
+
 ## Load existing 'collection' entries
 print "Load existing 'collection' entries...\n";
 
@@ -101,8 +105,11 @@ saveEntries();
 print "Load existing 'manifest' entries...\n";
 
 my $done = 0;
+
 my $startkey;
-my $limit = 100;
+#my $startkey="69429/m04t6f18ss85";
+#my $startkey = "69429/m0zw18k7959f";
+my $limit    = 100;
 while ( !$done ) {
 
     my $url = "/"
@@ -144,6 +151,16 @@ while ( !$done ) {
     saveEntries();
 }
 
+print "Entries: $entriescount\n";
+print Dumper ( \@aliases );
+
+@accessentries = @aliases;
+saveEntries();
+
+exit 0;
+
+###########
+
 # Pass hash of entries
 sub processEntry {
     my ( $type, $entry ) = @_;
@@ -153,6 +170,14 @@ sub processEntry {
     my $manifesttype = $entry->{type};
     $entry->{type} = $type;
 
+
+    # Slug is mandatory
+    if (! exists $entry->{slug}) {
+        $entry->{slug}=".";
+    }
+    # Old stuff that sholdn't be there
+    delete $entry->{'updated'};
+
     # Leave 'public' and 'updateInternalmeta' alone
 
     # leave 'slug' alone, but separate out 'aliasedSlugs'
@@ -161,6 +186,10 @@ sub processEntry {
             push @aliases, { slug => $alias, type => 'alias', to => $noid };
         }
         delete $entry->{aliasedSlugs};
+    }
+
+    if (exists $entry->{updateInternalmeta} && exists $entry->{updateInternalmeta}->{succeeded}) {
+        $entry->{updateInternalmeta}->{succeeded}=($entry->{updateInternalmeta}->{succeeded})? (JSON::true) : (JSON::false);
     }
 
     # Move from IIIF
@@ -176,9 +205,11 @@ sub processEntry {
         $entry->{behavior} =
           ( $entry->{'ordered'} ) ? "multi-part" : "unordered";
         delete $entry->{'ordered'};
+
     }
     else {
-        $entry->{behavior} = "continuous";
+        $entry->{viewingDirection} = "top-to-bottom";
+        $entry->{behavior}         = "contiuous";
     }
 
     # This only exists for a collection
@@ -196,7 +227,7 @@ sub processEntry {
     delete $entry->{freezeParameters};
 
     if ( $manifesttype && ( $manifesttype eq "multicanvas" ) ) {
-        $entry->{of} = "canvases";
+        $entry->{from} = "canvases";
 
         # convert labels
         if ( exists $entry->{canvases} ) {
@@ -211,7 +242,7 @@ sub processEntry {
     }
 
     if ( $manifesttype && ( $manifesttype eq "pdf" ) ) {
-        $entry->{of}   = "pdf";
+        $entry->{from} = "pdf";
         $entry->{file} = $entry->{master};
         delete $entry->{master};
         if ( exists $entry->{masterPages} ) {
@@ -231,6 +262,11 @@ sub processEntry {
 }
 
 sub saveEntries {
+    if ($validate) {
+        foreach my $entry (@accessentries) {
+            validateRecord( 'access', $entry );
+        }
+    }
 
     $entriescount += scalar(@accessentries);
     print "-->EntriesCount: $entriescount\n";
@@ -247,5 +283,29 @@ sub IIIF2txt {
     return $iiifTxt;
 }
 
-print "Entries: $entriescount\n";
-print Dumper ( \@aliases );
+sub validateRecord {
+    my ( $database, $record ) = @_;
+
+    my $tempname = "/tmp/mergeaccessvalidate.json";
+
+    open( FH, '>', $tempname ) or die $!;
+    print FH encode_json($record);
+    close(FH);
+
+    local $CWD = "/home/tdr/couchdb";
+
+    my $results;
+    open( FH, "kivik validate $tempname $database |" )
+      or die $!;
+    {
+        local $/;
+        $results = <FH>;
+    }
+    close(FH);
+    chomp($results);
+    if ( !( $results =~ /validates against the schema for database/ ) ) {
+        print "Validation failure for database=$database :\n"
+          . Data::Dumper->Dump( [ $record, $results ], [qw(Record Result)] )
+          . "\n";
+    }
+}
