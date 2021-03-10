@@ -79,7 +79,6 @@ my @aliases;
 #my $res;
 $| = 1;
 
-
 ## Load existing 'collection' entries
 print "Load existing 'collection' entries...\n";
 
@@ -107,9 +106,10 @@ print "Load existing 'manifest' entries...\n";
 my $done = 0;
 
 my $startkey;
+
 #my $startkey="69429/m04t6f18ss85";
 #my $startkey = "69429/m0zw18k7959f";
-my $limit    = 100;
+my $limit = 100;
 while ( !$done ) {
 
     my $url = "/"
@@ -170,11 +170,11 @@ sub processEntry {
     my $manifesttype = $entry->{type};
     $entry->{type} = $type;
 
-
     # Slug is mandatory
-    if (! exists $entry->{slug}) {
-        $entry->{slug}=".";
+    if ( !exists $entry->{slug} ) {
+        $entry->{slug} = ".";
     }
+
     # Old stuff that sholdn't be there
     delete $entry->{'updated'};
 
@@ -188,8 +188,13 @@ sub processEntry {
         delete $entry->{aliasedSlugs};
     }
 
-    if (exists $entry->{updateInternalmeta} && exists $entry->{updateInternalmeta}->{succeeded}) {
-        $entry->{updateInternalmeta}->{succeeded}=($entry->{updateInternalmeta}->{succeeded})? (JSON::true) : (JSON::false);
+    if (   exists $entry->{updateInternalmeta}
+        && exists $entry->{updateInternalmeta}->{succeeded} )
+    {
+        $entry->{updateInternalmeta}->{succeeded} =
+            ( $entry->{updateInternalmeta}->{succeeded} )
+          ? (JSON::true)
+          : (JSON::false);
     }
 
     # Move from IIIF
@@ -205,7 +210,6 @@ sub processEntry {
         $entry->{behavior} =
           ( $entry->{'ordered'} ) ? "multi-part" : "unordered";
         delete $entry->{'ordered'};
-
     }
     else {
         $entry->{viewingDirection} = "top-to-bottom";
@@ -283,6 +287,7 @@ sub IIIF2txt {
     return $iiifTxt;
 }
 
+# Validation, temporarily using a temporary file and calling kivik from the command line.
 sub validateRecord {
     my ( $database, $record ) = @_;
 
@@ -292,10 +297,10 @@ sub validateRecord {
     print FH encode_json($record);
     close(FH);
 
-    local $CWD = "/home/tdr/couchdb";
+    local $CWD = "/home/tdr/Access-Platform/couchdb";
 
     my $results;
-    open( FH, "kivik validate $tempname $database |" )
+    open( FH, "pnpx kivik validate $database $tempname |" )
       or die $!;
     {
         local $/;
@@ -303,7 +308,10 @@ sub validateRecord {
     }
     close(FH);
     chomp($results);
-    if ( !( $results =~ /validates against the schema for database/ ) ) {
+
+    # Currently looks for specific string rather than return code.
+    # There will eventually be a REST call, so this is all temporary.
+    if ( !( $results =~ /validates against database/ ) ) {
         print "Validation failure for database=$database :\n"
           . Data::Dumper->Dump( [ $record, $results ], [qw(Record Result)] )
           . "\n";
