@@ -72,9 +72,11 @@ else {
     die "Missing <access> configuration block in config\n";
 }
 
-my $entriescount = 0;
+my %entriescount = (
+    'collection' => 0,
+    'manifest'   => 0
+);
 my @accessentries;
-my @aliases;
 
 #my $res;
 $| = 1;
@@ -82,38 +84,14 @@ $| = 1;
 ## Load existing 'collection' entries
 print "Load existing 'collection' entries...\n";
 
-my $res = $collectiondb->get(
-    "/" . $collectiondb->database . "/_all_docs?include_docs=true",
-    {}, { deserializer => 'application/json' } );
-if ( $res->code != 200 ) {
-    if ( defined $res->response->content ) {
-        warn $res->response->content . "\n";
-    }
-    die $collectiondb->database
-      . "/_all_docs return code: "
-      . $res->code . "\n";
-}
-foreach my $collection ( @{ $res->data->{rows} } ) {
-    if ( substr( $collection->{key}, 0, 8 ) ne '_design/' ) {
-        processEntry( "collection", $collection->{doc} );
-    }
-}
-saveEntries();
-
-## Load existing 'manifest' entries
-print "Load existing 'manifest' entries...\n";
-
 my $done = 0;
-
 my $startkey;
-
-#my $startkey="69429/m04t6f18ss85";
-#my $startkey = "69429/m0zw18k7959f";
 my $limit = 100;
+
 while ( !$done ) {
 
     my $url = "/"
-      . $manifestdb->database
+      . $collectiondb->database
       . "/_all_docs?include_docs=true&limit="
       . ( $limit + 1 );
     if ($startkey) {
@@ -122,7 +100,9 @@ while ( !$done ) {
 
     print "url: $url\n";
 
-    $res = $manifestdb->get( $url, {}, { deserializer => 'application/json' } );
+    my $res =
+      $collectiondb->get( $url, {}, { deserializer => 'application/json' } );
+
     if ( $res->code != 200 ) {
         if ( defined $res->response->content ) {
             warn $res->response->content . "\n";
@@ -138,7 +118,61 @@ while ( !$done ) {
     else {
         $done = 1;
     }
-    print "EntriesCount: $entriescount Rowcount: $rowcount  "
+    print "Rowcount: $rowcount  "
+      . "Limit:$limit Done: $done "
+      . ( $startkey ? "StartKey: $startkey" : "" ) . "\n";
+
+    for ( 0 .. ( $rowcount - 1 ) ) {
+        my $collection = $res->data->{rows}->[$_];
+        if ( substr( $collection->{key}, 0, 8 ) ne '_design/' ) {
+            processEntry( "collection", $collection->{doc} );
+        }
+    }
+
+    saveEntries();
+}
+
+## Load existing 'manifest' entries
+print "Load existing 'manifest' entries...\n";
+
+$done = 0;
+
+undef $startkey;
+
+#$startkey="69429/m04t6f18ss85";
+#$startkey = "69429/m0zw18k7959f";
+$limit = 100;
+
+while ( !$done ) {
+
+    my $url = "/"
+      . $manifestdb->database
+      . "/_all_docs?include_docs=true&limit="
+      . ( $limit + 1 );
+    if ($startkey) {
+        $url .= "&startkey=" . encode_json($startkey);
+    }
+
+    print "url: $url\n";
+
+    my $res =
+      $manifestdb->get( $url, {}, { deserializer => 'application/json' } );
+    if ( $res->code != 200 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die $url . " return code: " . $res->code . "\n";
+    }
+    my $rowcount = scalar( @{ $res->data->{rows} } );
+
+    if ( $rowcount > $limit ) {
+        $startkey = $res->data->{rows}->[ $rowcount - 1 ]->{key};
+        $rowcount--;
+    }
+    else {
+        $done = 1;
+    }
+    print "Rowcount: $rowcount  "
       . "Limit:$limit Done: $done "
       . ( $startkey ? "StartKey: $startkey" : "" ) . "\n";
 
@@ -151,11 +185,7 @@ while ( !$done ) {
     saveEntries();
 }
 
-print "Entries: $entriescount\n";
-print Dumper ( \@aliases );
-
-@accessentries = @aliases;
-saveEntries();
+print Data::Dumper->Dump( [ \%entriescount ], ["Final Entries Count"] ) . "\n";
 
 exit 0;
 
@@ -170,11 +200,6 @@ sub processEntry {
     my $manifesttype = $entry->{type};
     $entry->{type} = $type;
 
-    # Slug is mandatory
-    if ( !exists $entry->{slug} ) {
-        $entry->{slug} = ".";
-    }
-
     # Old stuff that sholdn't be there
     delete $entry->{'updated'};
 
@@ -182,12 +207,11 @@ sub processEntry {
 
     # leave 'slug' alone, but separate out 'aliasedSlugs'
     if ( exists $entry->{aliasedSlugs} ) {
-        foreach my $alias ( @{ $entry->{aliasedSlugs} } ) {
-            push @aliases, { slug => $alias, type => 'alias', to => $noid };
-        }
+        print "Woops -- there is an aliasedSlug in $noid\n\n";
         delete $entry->{aliasedSlugs};
     }
 
+    # Ensure that boolean is a boolean, and not a number.
     if (   exists $entry->{updateInternalmeta}
         && exists $entry->{updateInternalmeta}->{succeeded} )
     {
@@ -210,10 +234,6 @@ sub processEntry {
         $entry->{behavior} =
           ( $entry->{'ordered'} ) ? "multi-part" : "unordered";
         delete $entry->{'ordered'};
-    }
-    else {
-        $entry->{viewingDirection} = "top-to-bottom";
-        $entry->{behavior}         = "contiuous";
     }
 
     # This only exists for a collection
@@ -260,8 +280,8 @@ sub processEntry {
         }
     }
 
-    #  print Dumper($entry);
     push @accessentries, $entry;
+    $entriescount{ $entry->{type} }++;
     print ".";
 }
 
@@ -272,8 +292,35 @@ sub saveEntries {
         }
     }
 
-    $entriescount += scalar(@accessentries);
-    print "-->EntriesCount: $entriescount\n";
+    my $url = "/" . $accessdb->database . "/_bulk_docs";
+
+    $manifestdb->type("application/json");
+    my $res = $manifestdb->post(
+        $url,
+        { docs         => \@accessentries },
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 201 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die $url . " return code: " . $res->code . "\n";
+    }
+
+    # Check for 'oops'
+    if ( ref( $res->data ) ne 'ARRAY' ) {
+        print "Not an array!" . Dumper( $res->data ), "\n";
+    }
+    else {
+        foreach my $entrystatus ( @{ $res->data } ) {
+            if ( !( $entrystatus->{'ok'} ) ) {
+                print Data::Dumper->Dump( [ \$entrystatus ], ["Not OK"] )
+                  . "\n";
+            }
+        }
+    }
+
+    print Data::Dumper->Dump( [ \%entriescount ], ["Entries Count"] ) . "\n";
     @accessentries = ();
 
 }
