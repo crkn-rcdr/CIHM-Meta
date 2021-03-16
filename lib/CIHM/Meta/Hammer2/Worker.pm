@@ -10,8 +10,7 @@ use Log::Log4perl;
 
 use CIHM::Swift::Client;
 use CIHM::Meta::REST::cantaloupe;
-use CIHM::Meta::REST::manifest;
-use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::access;
 use CIHM::Meta::REST::canvas;
 use CIHM::Meta::REST::internalmeta;
 use CIHM::Meta::Hammer2::Process;
@@ -46,32 +45,18 @@ sub initworker {
         croak "Missing <cantaloupe> configuration block in config\n";
     }
 
-    # Undefined if no <manifest> config block
-    if ( exists $confighash{manifest} ) {
-        $self->{manifestdb} = new CIHM::Meta::REST::manifest(
-            server      => $confighash{manifest}{server},
-            database    => $confighash{manifest}{database},
+    # Undefined if no <access> config block
+    if ( exists $confighash{access} ) {
+        $self->{accessdb} = new CIHM::Meta::REST::access(
+            server      => $confighash{access}{server},
+            database    => $confighash{access}{database},
             type        => 'application/json',
             conf        => $configpath,
             clientattrs => { timeout => 3600 },
         );
     }
     else {
-        croak "Missing <manifest> configuration block in config\n";
-    }
-
-    # Undefined if no <collection> config block
-    if ( exists $confighash{collection} ) {
-        $self->{collectiondb} = new CIHM::Meta::REST::collection(
-            server      => $confighash{collection}{server},
-            database    => $confighash{collection}{database},
-            type        => 'application/json',
-            conf        => $configpath,
-            clientattrs => { timeout => 3600 },
-        );
-    }
-    else {
-        croak "Missing <collection> configuration block in config\n";
+        croak "Missing <access> configuration block in config\n";
     }
 
     # Undefined if no <canvas> config block
@@ -136,14 +121,9 @@ sub cantaloupe {
     return $self->{cantaloupe};
 }
 
-sub manifestdb {
+sub accessdb {
     my $self = shift;
-    return $self->{manifestdb};
-}
-
-sub collectiondb {
-    my $self = shift;
-    return $self->{collectiondb};
+    return $self->{accessdb};
 }
 
 sub canvasdb {
@@ -175,7 +155,7 @@ sub warnings {
 }
 
 sub swing {
-    my ( $noid, $type, $configpath ) = @_;
+    my ( $noid, $configpath ) = @_;
     our $self;
 
     # Capture warnings
@@ -203,15 +183,13 @@ sub swing {
         new CIHM::Meta::Hammer2::Process(
             {
                 noid               => $noid,
-                type               => $type,
                 log                => $self->log,
                 swift              => $self->swift,
                 preservation_files => $self->{preservation_files},
                 access_metadata    => $self->{access_metadata},
                 access_files       => $self->{access_files},
                 cantaloupe         => $self->cantaloupe,
-                manifestdb         => $self->manifestdb,
-                collectiondb       => $self->collectiondb,
+                accessdb         => $self->accessdb,
                 canvasdb           => $self->canvasdb,
                 internalmetadb     => $self->internalmetadb,
             }
@@ -222,7 +200,7 @@ sub swing {
         $self->log->error("$noid: $_");
         $self->{message} .= "Caught: " . $_;
     };
-    $self->postResults( $noid, $type, $status, $self->{message} );
+    $self->postResults( $noid, $status, $self->{message} );
 
     AE::log debug => "$noid After ($$)";
 
@@ -230,16 +208,9 @@ sub swing {
 }
 
 sub postResults {
-    my ( $self, $noid, $type, $status, $message ) = @_;
+    my ( $self, $noid, $status, $message ) = @_;
 
-    my $thisdb;
-    if ( $type eq "manifest" ) {
-        $thisdb = $self->manifestdb;
-    }
-    else {
-        $thisdb = $self->collectiondb;
-    }
-    $thisdb->update_basic(
+    $self->accessdb->update_basic(
         $noid,
         {
             "updateInternalmeta" => encode_json(

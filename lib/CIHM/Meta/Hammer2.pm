@@ -68,30 +68,17 @@ sub new {
     my %confighash =
       new Config::General( -ConfigFile => $args->{configpath}, )->getall;
 
-    if ( exists $confighash{manifest} ) {
-        $self->{manifestdb} = new CIHM::Meta::REST::manifest(
-            server      => $confighash{manifest}{server},
-            database    => $confighash{manifest}{database},
+    if ( exists $confighash{access} ) {
+        $self->{accessdb} = new CIHM::Meta::REST::access(
+            server      => $confighash{access}{server},
+            database    => $confighash{access}{database},
             type        => 'application/json',
             conf        => $args->{configpath},
             clientattrs => { timeout => 3600 },
         );
     }
     else {
-        croak "Missing <manifest> configuration block in config\n";
-    }
-
-    if ( exists $confighash{collection} ) {
-        $self->{collectiondb} = new CIHM::Meta::REST::collection(
-            server      => $confighash{collection}{server},
-            database    => $confighash{collection}{database},
-            type        => 'application/json',
-            conf        => $args->{configpath},
-            clientattrs => { timeout => 3600 },
-        );
-    }
-    else {
-        croak "Missing <collection> configuration block in config\n";
+        croak "Missing <access> configuration block in config\n";
     }
 
     return $self;
@@ -133,14 +120,9 @@ sub log {
     return $self->{logger};
 }
 
-sub manifestdb {
+sub accessdb {
     my $self = shift;
-    return $self->{manifestdb};
-}
-
-sub collectiondb {
-    my $self = shift;
-    return $self->{collectiondb};
+    return $self->{accessdb};
 }
 
 sub hammer {
@@ -171,28 +153,19 @@ sub hammer {
     my $sem = new Coro::Semaphore( $self->maxprocs * 2 );
     my $somework;
 
-    my %dblist = (
-        "manifest"   => $self->manifestdb,
-        "collection" => $self->collectiondb
-    );
-
-    foreach my $type ( keys %dblist ) {
-        my $thisdb = $dblist{$type};
-        delete $self->{testnoids};
-        while ( my $noid = $self->getNextNOID($thisdb) ) {
-            $somework = 1;
-            $self->{inprogress}->{$noid} = 1;
-            $sem->down;
-            $pool->(
-                $noid, $type,
-                $self->configpath,
-                sub {
-                    my $noid = shift;
-                    $sem->up;
-                    delete $self->{inprogress}->{$noid};
-                }
-            );
-        }
+    while ( my $noid = $self->getNextNOID() ) {
+        $somework = 1;
+        $self->{inprogress}->{$noid} = 1;
+        $sem->down;
+        $pool->(
+            $noid,
+            $self->configpath,
+            sub {
+                my $noid = shift;
+                $sem->up;
+                delete $self->{inprogress}->{$noid};
+            }
+        );
     }
     undef $pool;
     if ($somework) {
@@ -205,22 +178,19 @@ sub hammer {
 }
 
 sub getNextTestNOID {
-    my ( $self, $thisdb ) = @_;
+    my ($self) = @_;
 
     if ( !exists $self->{testnoids} ) {
 
-        $thisdb->type("application/json");
-
-#        my $url = "/"
-#          . $thisdb->database
-#          . "/_design/metadatabus/_view/dmdType?reduce=false&descending=true&key=\"marc\"";
+        $self->accessdb->type("application/json");
 
         my $url = "/"
-          . $thisdb->database
+          . $self->accessdb->database
           . "/_design/metadatabus/_view/updateinternalmetas?reduce=false&startkey=\[1,true\]&endkey=\[1,true,\{\}\]";
 
         my $res =
-          $thisdb->get( $url, {}, { deserializer => 'application/json' } );
+          $self->accessdb->get( $url, {},
+            { deserializer => 'application/json' } );
         if ( $res->code == 200 ) {
             if ( exists $res->data->{rows} ) {
                 $self->{testnoids} = [];
@@ -242,7 +212,7 @@ sub getNextTestNOID {
 }
 
 sub getNextNOID {
-    my ( $self, $thisdb ) = @_;
+    my ($self) = @_;
 
     return if $self->endtime && time() > $self->endtime;
 
@@ -251,13 +221,14 @@ sub getNextNOID {
         $skipparam = "&skip=" . $self->skip;
     }
 
-    $thisdb->type("application/json");
+    $self->accessdb->type("application/json");
     my $url = "/"
-      . $thisdb->database
+      . $self->accessdb->database
       . "/_design/metadatabus/_view/updateinternalmetaq?reduce=false&descending=true&limit="
       . $self->limit
       . $skipparam;
-    my $res = $thisdb->get( $url, {}, { deserializer => 'application/json' } );
+    my $res =
+      $self->accessdb->get( $url, {}, { deserializer => 'application/json' } );
     if ( $res->code == 200 ) {
         if ( exists $res->data->{rows} ) {
             foreach my $hr ( @{ $res->data->{rows} } ) {
@@ -270,7 +241,7 @@ sub getNextNOID {
     }
     else {
         warn "$url on "
-          . $thisdb->sever
+          . $self->accessdb->sever
           . " GET return code: "
           . $res->code . "\n";
     }
