@@ -38,11 +38,8 @@ sub new {
     if ( !$self->swift ) {
         die "swift object parameter is mandatory\n";
     }
-    if ( !$self->collectiondb ) {
-        die "collectiondb object parameter is mandatory\n";
-    }
-    if ( !$self->manifestdb ) {
-        die "manifestdb object parameter is mandatory\n";
+    if ( !$self->accessdb ) {
+        die "accessdb object parameter is mandatory\n";
     }
     if ( !$self->cantaloupe ) {
         die "cantaloupe object parameter is mandatory\n";
@@ -98,14 +95,9 @@ sub preservation_files {
     return $self->args->{preservation_files};
 }
 
-sub manifestdb {
+sub accessdb {
     my $self = shift;
-    return $self->args->{manifestdb};
-}
-
-sub collectiondb {
-    my $self = shift;
-    return $self->args->{collectiondb};
+    return $self->args->{accessdb};
 }
 
 sub canvasdb {
@@ -116,11 +108,6 @@ sub canvasdb {
 sub internalmetadb {
     my $self = shift;
     return $self->args->{internalmetadb};
-}
-
-sub type {
-    my $self = shift;
-    return $self->args->{type};
 }
 
 sub cantaloupe {
@@ -157,18 +144,17 @@ sub attachment {
 sub process {
     my ($self) = @_;
 
-    if ( $self->type eq "manifest" ) {
-        $self->{document} =
-          $self->manifestdb->get_document( uri_escape_utf8( $self->noid ) );
-        die "Missing Manifest Document\n" if !( $self->document );
-    }
-    else {    # This is a collection
-        $self->{document} =
-          $self->collectiondb->get_document( uri_escape_utf8( $self->noid ) );
-        die "Missing Collection Document\n" if !( $self->document );
+    $self->{document} =
+      $self->accessdb->get_document( uri_escape_utf8( $self->noid ) );
+    die "Missing Document\n" if !( $self->document );
 
-        if (   !( exists $self->document->{'ordered'} )
-            || !( $self->document->{'ordered'} ) )
+    if ( !( exists $self->document->{'type'} ) ) {
+        die "Missing mandatory field 'type'\n";
+    }
+    my $type = $self->document->{'type'};
+    if ( $type eq 'collection' ) {    # This is a collection
+        if (  !( exists $self->document->{'behavior'} )
+            || ( $self->document->{'ordered'} eq "unordered" ) )
         {
             warn "Nothing to do for an unordered collection\n";
             return;
@@ -218,7 +204,7 @@ sub process {
     undef $xmlrecord;
 
     $self->attachment->[0]->{'depositor'} = $depositor;
-    if ( $self->type eq "manifest" ) {
+    if ( $type eq "manifest" ) {
         $self->attachment->[0]->{'type'} = 'document';
     }
     else {
@@ -248,11 +234,11 @@ sub process {
         $self->attachment->[0]->{'canonicalDownloadSize'} =
           $self->document->{'ocrPdf'}->{'size'};
     }
-    elsif ( exists $self->document->{'master'} ) {
+    elsif ( exists $self->document->{'file'} ) {
         $self->attachment->[0]->{'canonicalDownload'} =
-          $self->document->{'master'}->{'path'};
+          $self->document->{'file'}->{'path'};
         $self->attachment->[0]->{'canonicalDownloadSize'} =
-          $self->document->{'master'}->{'size'};
+          $self->document->{'file'}->{'size'};
     }
 
 ## All other attachment array elements are components
@@ -444,7 +430,11 @@ s|<txt:txtmap>|<txtmap xmlns:txt="http://canadiana.ca/schema/2012/xsd/txtmap">|g
 sub findCollections {
     my ( $self, $noid ) = @_;
 
-    foreach my $collection ( @{ $self->collectiondb->getCollections($noid) } ) {
+    my $collections = $self->accessdb->getCollections($noid);
+
+    die "Can't getCollections()\n" if ( !$collections );
+
+    foreach my $collection ( @{$collections} ) {
 
         if (   exists $collection->{value}
             && exists $collection->{value}->{slug} )
@@ -467,7 +457,7 @@ sub getIIIFText {
 
     foreach my $try ( "none", "en", "fr" ) {
         if ( exists $text->{$try} ) {
-            return $text->{$try}->[0];
+            return $text->{$try};
         }
     }
 }

@@ -1,0 +1,366 @@
+#!/usr/bin/env perl
+
+use strict;
+use utf8;
+use warnings;
+use Getopt::Long;
+use Config::General;
+use CIHM::Meta::REST::access;
+use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::manifest;
+use Data::Dumper;
+use JSON;
+use DateTime;
+use List::Compare;
+use Digest::MD5 qw(md5 md5_hex md5_base64);
+use File::chdir;
+
+my $conf = "/etc/canadiana/tdr/tdr.conf";
+my $validate;
+my $debug;
+
+GetOptions(
+    'conf:s'   => \$conf,
+    'validate' => \$validate,
+    'debug'    => \$debug
+);
+
+my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
+
+# Undefined if no <collection> config block
+my $collectiondb;
+if ( exists $confighash{collection} ) {
+    $collectiondb = new CIHM::Meta::REST::collection(
+        server      => $confighash{collection}{server},
+        database    => $confighash{collection}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <collection> configuration block in config\n";
+}
+
+# Undefined if no <manifest> config block
+my $manifestdb;
+if ( exists $confighash{manifest} ) {
+    $manifestdb = new CIHM::Meta::REST::manifest(
+        server      => $confighash{manifest}{server},
+        database    => $confighash{manifest}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <manifest> configuration block in config\n";
+}
+
+# Undefined if no <access> config block
+my $accessdb;
+if ( exists $confighash{access} ) {
+    $accessdb = new CIHM::Meta::REST::access(
+        server      => $confighash{access}{server},
+        database    => $confighash{access}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 36000 },
+    );
+}
+else {
+    die "Missing <access> configuration block in config\n";
+}
+
+my %entriescount = (
+    'collection' => 0,
+    'manifest'   => 0
+);
+my @accessentries;
+
+#my $res;
+$| = 1;
+
+## Load existing 'collection' entries
+print "Load existing 'collection' entries...\n";
+
+my $done = 0;
+my $startkey;
+my $limit = 100;
+
+while ( !$done ) {
+
+    my $url = "/"
+      . $collectiondb->database
+      . "/_all_docs?include_docs=true&limit="
+      . ( $limit + 1 );
+    if ($startkey) {
+        $url .= "&startkey=" . encode_json($startkey);
+    }
+
+    print "url: $url\n";
+
+    my $res =
+      $collectiondb->get( $url, {}, { deserializer => 'application/json' } );
+
+    if ( $res->code != 200 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die $url . " return code: " . $res->code . "\n";
+    }
+    my $rowcount = scalar( @{ $res->data->{rows} } );
+
+    if ( $rowcount > $limit ) {
+        $startkey = $res->data->{rows}->[ $rowcount - 1 ]->{key};
+        $rowcount--;
+    }
+    else {
+        $done = 1;
+    }
+    print "Rowcount: $rowcount  "
+      . "Limit:$limit Done: $done "
+      . ( $startkey ? "StartKey: $startkey" : "" ) . "\n";
+
+    for ( 0 .. ( $rowcount - 1 ) ) {
+        my $collection = $res->data->{rows}->[$_];
+        if ( substr( $collection->{key}, 0, 8 ) ne '_design/' ) {
+            processEntry( "collection", $collection->{doc} );
+        }
+    }
+
+    saveEntries();
+}
+
+## Load existing 'manifest' entries
+print "Load existing 'manifest' entries...\n";
+
+$done = 0;
+
+undef $startkey;
+
+#$startkey="69429/m04t6f18ss85";
+#$startkey = "69429/m0zw18k7959f";
+$limit = 100;
+
+while ( !$done ) {
+
+    my $url = "/"
+      . $manifestdb->database
+      . "/_all_docs?include_docs=true&limit="
+      . ( $limit + 1 );
+    if ($startkey) {
+        $url .= "&startkey=" . encode_json($startkey);
+    }
+
+    print "url: $url\n";
+
+    my $res =
+      $manifestdb->get( $url, {}, { deserializer => 'application/json' } );
+    if ( $res->code != 200 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die $url . " return code: " . $res->code . "\n";
+    }
+    my $rowcount = scalar( @{ $res->data->{rows} } );
+
+    if ( $rowcount > $limit ) {
+        $startkey = $res->data->{rows}->[ $rowcount - 1 ]->{key};
+        $rowcount--;
+    }
+    else {
+        $done = 1;
+    }
+    print "Rowcount: $rowcount  "
+      . "Limit:$limit Done: $done "
+      . ( $startkey ? "StartKey: $startkey" : "" ) . "\n";
+
+    for ( 0 .. ( $rowcount - 1 ) ) {
+        my $collection = $res->data->{rows}->[$_];
+        if ( substr( $collection->{key}, 0, 8 ) ne '_design/' ) {
+            processEntry( "manifest", $collection->{doc} );
+        }
+    }
+    saveEntries();
+}
+
+print Data::Dumper->Dump( [ \%entriescount ], ["Final Entries Count"] ) . "\n";
+
+exit 0;
+
+###########
+
+# Pass hash of entries
+sub processEntry {
+    my ( $type, $entry ) = @_;
+
+    my $noid = $entry->{'_id'};
+    delete $entry->{'_rev'};
+    my $manifesttype = $entry->{type};
+    $entry->{type} = $type;
+
+    # Old stuff that sholdn't be there
+    delete $entry->{'updated'};
+
+    # Leave 'public' and 'updateInternalmeta' alone
+
+    # leave 'slug' alone, but separate out 'aliasedSlugs'
+    if ( exists $entry->{aliasedSlugs} ) {
+        print "Woops -- there is an aliasedSlug in $noid\n\n";
+        delete $entry->{aliasedSlugs};
+    }
+
+    # Ensure that boolean is a boolean, and not a number.
+    if (   exists $entry->{updateInternalmeta}
+        && exists $entry->{updateInternalmeta}->{succeeded} )
+    {
+        $entry->{updateInternalmeta}->{succeeded} =
+            ( $entry->{updateInternalmeta}->{succeeded} )
+          ? (JSON::true)
+          : (JSON::false);
+    }
+
+    # Move from IIIF
+    if ( exists $entry->{label} ) {
+        $entry->{label} = IIIF2txt( $entry->{label} );
+    }
+    if ( exists $entry->{summary} ) {
+        $entry->{summary} = IIIF2txt( $entry->{summary} );
+    }
+
+    # Behaviour is new, so set to default for type
+    if ( $type eq 'collection' ) {
+        $entry->{behavior} =
+          ( $entry->{'ordered'} ) ? "multi-part" : "unordered";
+        delete $entry->{'ordered'};
+    }
+
+    # This only exists for a collection
+    if ( exists $entry->{items} ) {
+
+        # since items[].itemLabel never used, don't need to transform
+        $entry->{members} = $entry->{items};
+        delete $entry->{items};
+    }
+
+    # Manifests
+
+    # Never implimented, so clean out
+    delete $entry->{frozen};
+    delete $entry->{freezeParameters};
+
+    if ( $manifesttype && ( $manifesttype eq "multicanvas" ) ) {
+        $entry->{from} = "canvases";
+
+        # convert labels
+        if ( exists $entry->{canvases} ) {
+            for ( 0 .. ( @{ $entry->{canvases} } - 1 ) ) {
+                my $i = $_;
+                if ( exists $entry->{canvases}->[$i]->{label} ) {
+                    $entry->{canvases}->[$i]->{label} =
+                      IIIF2txt( $entry->{canvases}->[$i]->{label} );
+                }
+            }
+        }
+    }
+
+    if ( $manifesttype && ( $manifesttype eq "pdf" ) ) {
+        $entry->{from} = "pdf";
+        $entry->{file} = $entry->{master};
+        delete $entry->{master};
+        if ( exists $entry->{masterPages} ) {
+            $entry->{pageLabels} = [];
+            for ( 0 .. ( @{ $entry->{masterPages} } - 1 ) ) {
+                my $i = $_;
+                $entry->{pageLabels}->[$i] =
+                  IIIF2txt( $entry->{masterPages}->[$i] );
+            }
+            delete $entry->{masterPages};
+        }
+    }
+
+    push @accessentries, $entry;
+    $entriescount{ $entry->{type} }++;
+    print ".";
+}
+
+sub saveEntries {
+    if ($validate) {
+        foreach my $entry (@accessentries) {
+            validateRecord( 'access', $entry );
+        }
+    }
+
+    my $url = "/" . $accessdb->database . "/_bulk_docs";
+
+    $manifestdb->type("application/json");
+    my $res = $manifestdb->post(
+        $url,
+        { docs         => \@accessentries },
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 201 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die $url . " return code: " . $res->code . "\n";
+    }
+
+    # Check for 'oops'
+    if ( ref( $res->data ) ne 'ARRAY' ) {
+        print "Not an array!" . Dumper( $res->data ), "\n";
+    }
+    else {
+        foreach my $entrystatus ( @{ $res->data } ) {
+            if ( !( $entrystatus->{'ok'} ) ) {
+                print Data::Dumper->Dump( [ \$entrystatus ], ["Not OK"] )
+                  . "\n";
+            }
+        }
+    }
+
+    print Data::Dumper->Dump( [ \%entriescount ], ["Entries Count"] ) . "\n";
+    @accessentries = ();
+
+}
+
+sub IIIF2txt {
+    my ($iiifTxt) = @_;
+
+    foreach my $lang ( keys %{$iiifTxt} ) {
+        $iiifTxt->{$lang} = pop @{ $iiifTxt->{$lang} };
+    }
+    return $iiifTxt;
+}
+
+# Validation, temporarily using a temporary file and calling kivik from the command line.
+sub validateRecord {
+    my ( $database, $record ) = @_;
+
+    my $tempname = "/tmp/mergeaccessvalidate.json";
+
+    open( FH, '>', $tempname ) or die $!;
+    print FH encode_json($record);
+    close(FH);
+
+    local $CWD = "/home/tdr/Access-Platform/couchdb";
+
+    my $results;
+    open( FH, "pnpx kivik validate $database $tempname |" )
+      or die $!;
+    {
+        local $/;
+        $results = <FH>;
+    }
+    close(FH);
+    chomp($results);
+
+    # Currently looks for specific string rather than return code.
+    # There will eventually be a REST call, so this is all temporary.
+    if ( !( $results =~ /validates against database/ ) ) {
+        print "Validation failure for database=$database :\n"
+          . Data::Dumper->Dump( [ $record, $results ], [qw(Record Result)] )
+          . "\n";
+    }
+}
