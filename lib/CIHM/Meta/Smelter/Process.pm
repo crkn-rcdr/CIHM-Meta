@@ -9,6 +9,7 @@ use URI::Escape;
 use XML::LibXML;
 use XML::LibXSLT;
 use Digest::MD5 qw(md5 md5_hex md5_base64);
+use CIHM::Meta::Kivik;
 
 #use Data::Dumper;
 
@@ -84,9 +85,9 @@ sub dipstagingdb {
     return $self->args->{dipstagingdb};
 }
 
-sub manifestdb {
+sub accessdb {
     my $self = shift;
-    return $self->args->{manifestdb};
+    return $self->args->{accessdb};
 }
 
 sub dipdoc {
@@ -161,10 +162,8 @@ sub process {
         die "Slug=$slug already exists\n";
     }
 
+    $self->manifest->{type}='manifest';
     $self->manifest->{slug} = $slug;
-
-    # Setting a default
-    $self->manifest->{freezeParameters} = {};
 
     $self->loadFileMeta();
 
@@ -174,20 +173,22 @@ sub process {
 
     $self->buildManifest();
     if ($borndigital) {
-        $self->manifest->{'type'}        = 'pdf';
-        $self->manifest->{'masterPages'} = $self->getPageLabels();
+        $self->manifest->{'from'} = 'pdf';
+        $self->manifest->{'pageLabels'} = $self->getPageLabels();
 
 # Move from the default position used in buildManifest(), as born digital is 'special'
-        $self->manifest->{'master'} = $self->manifest->{'ocrPdf'};
+        $self->manifest->{'file'} = $self->manifest->{'ocrPdf'};
         delete $self->manifest->{'ocrPdf'};
     }
     else {
-        $self->manifest->{'type'} = 'multicanvas';
+        $self->manifest->{'from'} = 'canvases';
         $self->buildCanvases();
     }
     $self->assignNoids();
     $self->dmdManifest();
     $self->ocrCanvases();
+
+    $self->validateDocuments();
 
     $self->writeDocuments();
 }
@@ -363,7 +364,7 @@ sub getPageLabels {
         if ( !$label || $label eq '' ) {
             die "Label missing for index $index\n";
         }
-        push @labels, { none => [$label] };
+        push @labels, { none => $label };
     }
     return \@labels;
 }
@@ -378,7 +379,7 @@ sub buildManifest {
     if ( !$label || $label eq '' ) {
         die "Missing item label\n";
     }
-    $self->manifest->{label}->{none} = [$label];
+    $self->manifest->{label}->{none} = $label;
 
     if ( defined $div->{'distribution.flocat'} ) {
         warn "Distribution not PDF"
@@ -445,7 +446,7 @@ sub buildCanvases {
 
         # Components in div 1+
         my $div = $self->divs->[ $index + 1 ];
-        $mancanvases[$index]->{label}->{none} = [ $div->{label} ];
+        $mancanvases[$index]->{label}->{none} =  $div->{label} ;
         my $master = $div->{'master.flocat'};
         die "Missing Master for index=$index\n" if ( !$master );
         my $path = $self->aip . "/" . $master;
@@ -642,12 +643,35 @@ sub mintNoids {
     return $res->data->{ids};
 }
 
+sub validateDocuments {
+    my ($self) = @_;
+
+    validateRecord('access',$self->manifest);
+
+    foreach my $canvas (@{$self->canvases}) {
+        validateRecord('canvas',$canvas);
+    }
+}
+
+sub validateRecord {
+    my ( $database, $record ) = @_;
+
+    my $error = CIHM::Meta::Kivik::validateRecord( $database, $record );
+
+    if ($error) {
+        warn "Validation failure for database=$database :\n"
+          . Data::Dumper->Dump( [ $record, $error ], [qw(Record Error)] )
+          . "\n";
+    }
+}
+
+
 # TODO: For now a direct write to CouchDB, later through an Upholstery interface
 sub writeDocuments {
     my ($self) = @_;
 
-    my $res = $self->manifestdb->post(
-        "/" . $self->manifestdb->database . "/_bulk_docs",
+    my $res = $self->accessdb->post(
+        "/" . $self->accessdb->database . "/_bulk_docs",
         { docs         => [ $self->manifest ] },
         { deserializer => 'application/json' }
     );
@@ -675,9 +699,9 @@ sub writeDocuments {
 sub getSlug {
     my ( $self, $slug ) = @_;
 
-    my $res = $self->manifestdb->get(
+    my $res = $self->accessdb->get(
         "/"
-          . $self->manifestdb->database
+          . $self->accessdb->database
           . "/_design/access/_view/slug?key="
           . encode_json($slug),
         {},
