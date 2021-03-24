@@ -241,7 +241,7 @@ sub getNextNOID {
     }
     else {
         warn "$url on "
-          . $self->accessdb->sever
+          . $self->accessdb->server
           . " GET return code: "
           . $res->code . "\n";
     }
