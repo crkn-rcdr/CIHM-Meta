@@ -177,40 +177,6 @@ sub hammer {
     }
 }
 
-sub getNextTestNOID {
-    my ($self) = @_;
-
-    if ( !exists $self->{testnoids} ) {
-
-        $self->accessdb->type("application/json");
-
-        my $url = "/"
-          . $self->accessdb->database
-          . "/_design/metadatabus/_view/updateinternalmetas?reduce=false&startkey=\[1,true\]&endkey=\[1,true,\{\}\]";
-
-        my $res =
-          $self->accessdb->get( $url, {},
-            { deserializer => 'application/json' } );
-        if ( $res->code == 200 ) {
-            if ( exists $res->data->{rows} ) {
-                $self->{testnoids} = [];
-                foreach my $hr ( @{ $res->data->{rows} } ) {
-                    my $noid = $hr->{id};
-                    push @{ $self->{testnoids} }, $noid;
-                }
-            }
-        }
-        else {
-            warn $url . " GET return code: " . $res->code . "\n";
-        }
-    }
-
-    if ( exists $self->{testnoids} ) {
-        return pop @{ $self->{testnoids} };
-    }
-    return;
-}
-
 sub getNextNOID {
     my ($self) = @_;
 
