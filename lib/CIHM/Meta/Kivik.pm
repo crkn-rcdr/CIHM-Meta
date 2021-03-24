@@ -6,6 +6,7 @@ use utf8;
 use warnings;
 use File::chdir;
 use JSON;
+use File::Temp ();
 
 =head1 NAME
 
@@ -32,16 +33,14 @@ CIHM::Meta::Kivik - Common place for Kivik validation
 sub validateRecord {
     my ( $database, $record ) = @_;
 
-    my $tempname = "/tmp/mergeaccessvalidate.json";
-
-    open( FH, '>', $tempname ) or die $!;
-    print FH encode_json($record);
-    close(FH);
+    my $tmp = File::Temp->new( SUFFIX => '.json' );
+    print $tmp encode_json($record);
+    close($tmp);
 
     local $CWD = "/home/tdr/Access-Platform/couchdb";
 
     my $results;
-    open( FH, "pnpx kivik validate $database $tempname |" )
+    open( FH, "pnpx kivik validate $database ".$tmp->filename." |" )
       or die $!;
     {
         local $/;
