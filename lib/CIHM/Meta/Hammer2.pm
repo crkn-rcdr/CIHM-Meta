@@ -190,7 +190,7 @@ sub getNextNOID {
     $self->accessdb->type("application/json");
     my $url = "/"
       . $self->accessdb->database
-      . "/_design/metadatabus/_view/updateinternalmetaq?reduce=false&descending=true&limit="
+      . "/_design/metadatabus/_view/hammerQueue?reduce=false&descending=true&limit="
       . $self->limit
       . $skipparam;
     my $res =

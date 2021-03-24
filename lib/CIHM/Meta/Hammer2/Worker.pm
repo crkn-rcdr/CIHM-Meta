@@ -189,7 +189,7 @@ sub swing {
                 access_metadata    => $self->{access_metadata},
                 access_files       => $self->{access_files},
                 cantaloupe         => $self->cantaloupe,
-                accessdb         => $self->accessdb,
+                accessdb           => $self->accessdb,
                 canvasdb           => $self->canvasdb,
                 internalmetadb     => $self->internalmetadb,
             }
@@ -210,15 +210,11 @@ sub swing {
 sub postResults {
     my ( $self, $noid, $status, $message ) = @_;
 
-    $self->accessdb->update_basic(
+    $self->accessdb->hammerResult(
         $noid,
         {
-            "updateInternalmeta" => encode_json(
-                {
-                    "succeeded" => $status,
-                    "message"   => $message,
-                }
-            )
+            "succeeded" => $status,
+            "message"   => $message,
         }
     );
 }

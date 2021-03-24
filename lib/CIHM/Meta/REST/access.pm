@@ -72,6 +72,28 @@ sub update_basic_full {
     return $res->data;
 }
 
+# Returns the full return object
+sub hammerResult {
+    my ( $self, $noid, $updatedoc ) = @_;
+    my ( $res, $code, $data );
+
+    # This encoding makes $updatedoc variables available as form data
+    $self->type("application/json");
+    my $uri = "/"
+      . $self->database
+      . "/_design/metadatabus/_update/hammerResult/"
+      . uri_escape_utf8($noid);
+
+    $res =
+      $self->post( $uri, $updatedoc, { deserializer => 'application/json' } );
+
+    if ( $res->code != 201 && $res->code != 200 ) {
+        warn $uri . " POST return code: " . $res->code . "\n";
+    }
+    return $res->data;
+}
+
+
 sub get_document {
     my ( $self, $docid ) = @_;
 
