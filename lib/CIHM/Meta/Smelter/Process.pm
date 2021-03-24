@@ -162,7 +162,7 @@ sub process {
         die "Slug=$slug already exists\n";
     }
 
-    $self->manifest->{type}='manifest';
+    $self->manifest->{type} = 'manifest';
     $self->manifest->{slug} = $slug;
 
     $self->loadFileMeta();
@@ -173,7 +173,7 @@ sub process {
 
     $self->buildManifest();
     if ($borndigital) {
-        $self->manifest->{'from'} = 'pdf';
+        $self->manifest->{'from'}       = 'pdf';
         $self->manifest->{'pageLabels'} = $self->getPageLabels();
 
 # Move from the default position used in buildManifest(), as born digital is 'special'
@@ -446,7 +446,7 @@ sub buildCanvases {
 
         # Components in div 1+
         my $div = $self->divs->[ $index + 1 ];
-        $mancanvases[$index]->{label}->{none} =  $div->{label} ;
+        $mancanvases[$index]->{label}->{none} = $div->{label};
         my $master = $div->{'master.flocat'};
         die "Missing Master for index=$index\n" if ( !$master );
         my $path = $self->aip . "/" . $master;
@@ -646,10 +646,10 @@ sub mintNoids {
 sub validateDocuments {
     my ($self) = @_;
 
-    validateRecord('access',$self->manifest);
+    validateRecord( 'access', $self->manifest );
 
-    foreach my $canvas (@{$self->canvases}) {
-        validateRecord('canvas',$canvas);
+    foreach my $canvas ( @{ $self->canvases } ) {
+        validateRecord( 'canvas', $canvas );
     }
 }
 
@@ -664,7 +664,6 @@ sub validateRecord {
           . "\n";
     }
 }
-
 
 # TODO: For now a direct write to CouchDB, later through an Upholstery interface
 sub writeDocuments {
