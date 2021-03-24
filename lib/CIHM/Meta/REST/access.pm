@@ -2,7 +2,6 @@ package CIHM::Meta::REST::access;
 
 use strict;
 use Carp;
-use Data::Dumper;
 use DateTime;
 use JSON;
 use URI::Escape qw( uri_escape_utf8 );
@@ -93,7 +92,6 @@ sub hammerResult {
     return $res->data;
 }
 
-
 sub get_document {
     my ( $self, $docid ) = @_;
 
@@ -109,12 +107,42 @@ sub get_document {
     }
 }
 
+sub getSlim {
+    my ( $self, $docid ) = @_;
+
+    $self->type("application/json");
+    my $url = "/" . $self->{database} . "/_find";
+    my $res = $self->post(
+        $url,
+        {
+            "selector" => {
+                "_id" => {
+                    '$eq' => $docid
+                }
+            },
+            "fields" => [ "slug","behavior" ]
+        },
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code == 200 ) {
+        return pop @{$res->data->{docs}};
+    }
+    else {
+        warn "GET $url return code: " . $res->code . "\n";
+        return;
+    }
+}
+
 sub getCollections {
     my ( $self, $docid ) = @_;
 
     $self->type("application/json");
     my $url = "/" . $self->{database} . "/_design/access/_view/members";
-    my $res = $self->post( $url, { keys => [$docid] }, { deserializer => 'application/json' } );
+    my $res = $self->post(
+        $url,
+        { keys         => [$docid] },
+        { deserializer => 'application/json' }
+    );
     if ( $res->code == 200 ) {
         return $res->data->{rows};
     }
