@@ -703,6 +703,8 @@ sub postUpdates {
         if ( $entry->{updated} ) {
             delete $entry->{updated};
             $entry->{'_id'} = $noidkey;
+            validateRecord( 'access', $entry )
+              ;    # Always validate records being added or updated.
             push @{ $dbupdate->{docs} }, $entry;
         }
     }
