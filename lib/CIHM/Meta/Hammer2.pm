@@ -5,8 +5,7 @@ use Carp;
 use Config::General;
 use Log::Log4perl;
 
-use CIHM::Meta::REST::manifest;
-use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::access;
 use CIHM::Meta::Hammer2::Worker;
 
 use Coro::Semaphore;

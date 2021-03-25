@@ -6,8 +6,6 @@ use warnings;
 use Getopt::Long;
 use Config::General;
 use CIHM::Meta::REST::internalmeta;
-use CIHM::Meta::REST::collection;
-use CIHM::Meta::REST::manifest;
 use CIHM::Meta::REST::access;
 use CIHM::Meta::Kivik;
 use XML::LibXML;
