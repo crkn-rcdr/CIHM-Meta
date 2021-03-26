@@ -8,8 +8,7 @@ use Config::General;
 use URI::Escape;
 use JSON;
 use CIHM::Meta::REST::internalmeta;
-use CIHM::Meta::REST::collection;
-use CIHM::Meta::REST::manifest;
+use CIHM::Meta::REST::access;
 use Data::Dumper;
 
 my $conf = "/etc/canadiana/tdr/tdr.conf";
@@ -24,34 +23,19 @@ GetOptions(
 
 my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
 
-# Undefined if no <collection> config block
-my $collectiondb;
-if ( exists $confighash{collection} ) {
-    $collectiondb = new CIHM::Meta::REST::collection(
-        server      => $confighash{collection}{server},
-        database    => $confighash{collection}{database},
+# Undefined if no <caccess> config block
+my $accessdb;
+if ( exists $confighash{access} ) {
+    $accessdb = new CIHM::Meta::REST::access(
+        server      => $confighash{access}{server},
+        database    => $confighash{access}{database},
         type        => 'application/json',
         conf        => $conf,
         clientattrs => { timeout => 36000 },
     );
 }
 else {
-    die "Missing <collection> configuration block in config\n";
-}
-
-# Undefined if no <manifest> config block
-my $manifestdb;
-if ( exists $confighash{manifest} ) {
-    $manifestdb = new CIHM::Meta::REST::manifest(
-        server      => $confighash{manifest}{server},
-        database    => $confighash{manifest}{database},
-        type        => 'application/json',
-        conf        => $conf,
-        clientattrs => { timeout => 36000 },
-    );
-}
-else {
-    die "Missing <manifest> configuration block in config\n";
+    die "Missing <access> configuration block in config\n";
 }
 
 # Undefined if no <internalmeta> config block
@@ -69,8 +53,8 @@ else {
     die "Missing <internalmeta> configuration block in config\n";
 }
 
-my %manifests;
-my %collections;
+my %accessslugs;
+
 print "Loading slugs from 'internalmeta'...\n";
 $internalmetadb->type("application/json");
 my $request = "/"
@@ -84,113 +68,96 @@ if ( $res->code != 200 ) {
 foreach my $doc ( @{ $res->data->{rows} } ) {
     my $slug = $doc->{id};
     my $command =
-      ( $doc->{key}->[0] eq "approved" ) ? "makepublic" : "makeprivate";
-    my $type = $doc->{key}->[2];
-    if ( $doc->{key}->[2] eq 'document' ) {
-        $manifests{$slug} = $command;
-    }
-    else {
-        $collections{$slug} = $command;
-    }
+      ( $doc->{key}->[0] eq "approved" ) ? "publish" : "unpublish";
+    $accessslugs{$slug} = $command;
 }
 
-print "Looking up slugs in collection database...\n";
-$request = "/" . $collectiondb->{database} . "/_design/access/_view/slug";
-my @keys = keys %collections;
-$collectiondb->type("application/json");
-$res = $collectiondb->post(
-    $request,
-    {
-        keys => \@keys
-    },
-    { deserializer => 'application/json' }
-);
-if ( $res->code != 200 ) {
-    die "CouchDB: \"$request\" return code: " . $res->code . "\n";
-}
+print "Looking up slugs in access database...\n";
+$accessdb->type("application/json");
 
-foreach my $doc ( @{ $res->data->{rows} } ) {
-    if ( exists $doc->{id} ) {
-        my $command = delete $collections{ $doc->{key} };
-        if (   ( ( $command eq 'makepublic' ) && !( $doc->{value}->{public} ) )
-            || ( ( $command eq 'makeprivate' ) && $doc->{value}->{public} ) )
+my $resultcount = -1;
+my $bookmark;
+until ( $resultcount == 0 ) {
+    my $request = "/" . $accessdb->{database} . "/_find";
+    my $res     = $accessdb->post(
+        $request,
         {
-            print $doc->{key} . " == " . $doc->{id} . " --> $command\n";
-            if ( !$noupdate ) {
-                my $request2 = "/"
-                  . $collectiondb->{database}
-                  . "/_design/metadatabus/_update/basic/"
-                  . uri_escape( $doc->{id} );
-                my $updatedoc = { $command => JSON::true };
-                my $res2 = $collectiondb->post( $request2, $updatedoc,
-                    { deserializer => 'application/json' } );
-
-                if ( $res2->code != 200 && $res2->code != 201 ) {
-                    die "CouchDB: \"$request2\" return code: "
-                      . $res2->code . "\n";
+            "selector" => {
+                "slug" => {
+                    '$exists' => JSON::true
                 }
+            },
+            "limit"    => 100000,
+            "fields"   => [ "_id", "slug", "public" ],
+            "bookmark" => $bookmark
+        },
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 200 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die "$request return code: " . $res->code . "\n";
+    }
+    if ( !exists $res->data->{docs} ) {
+        die "Docs field missing" . Dumper( $res->data ) . "\n";
+    }
+    if ( exists $res->data->{bookmark} ) {
+        $bookmark = $res->data->{bookmark};
+    }
+
+    $resultcount = scalar( @{ $res->data->{docs} } );
+    foreach my $slugentry ( @{ $res->data->{docs} } ) {
+        my $slug    = $slugentry->{slug};
+        my $noid    = $slugentry->{'_id'};
+        my $command = delete $accessslugs{ $slug};
+        if ( !$command && $debug) {
+            print "No command\n" . Dumper($slugentry);
+        }
+        if (
+            $command
+            && (
+                (
+                    ( $command eq 'publish' )
+                    && !( exists $slugentry->{public} )
+                )
+                || ( ( $command eq 'unpublish' )
+                    && exists $slugentry->{public} )
+            )
+          )
+        {
+            my $request2 = "/"
+              . $accessdb->{database}
+              . "/_design/access/_update/"
+              . $command . "/"
+              . uri_escape($noid);
+
+            print "$noid == $slug --> $command\n";
+
+            my $res2 = $accessdb->post( $request2, {},
+                { deserializer => 'application/json' } );
+
+            if ( $res2->code != 200 && $res2->code != 201 ) {
+                die "CouchDB: \"$request\" return code: " . $res2->code . "\n";
+            }
+            else {
+                print Dumper ( $res2->data ) if $debug;
             }
         }
     }
-    else {
-        print Data::Dumper->Dump( [$doc], ["Collection without ID"] );
-    }
 }
 
-print "Looking up slugs in manifest database...\n";
-$request = "/" . $manifestdb->{database} . "/_design/access/_view/slug";
-@keys    = keys %manifests;
-$manifestdb->type("application/json");
-$res = $manifestdb->post(
-    $request,
-    {
-        keys => \@keys
-    },
-    { deserializer => 'application/json' }
-);
-if ( $res->code != 200 ) {
-    die "CouchDB: \"$request\" return code: " . $res->code . "\n";
-}
-
-foreach my $doc ( @{ $res->data->{rows} } ) {
-    if ( exists $doc->{id} ) {
-
-        my $command = delete $manifests{ $doc->{key} };
-        if (   ( ( $command eq 'makepublic' ) && !( $doc->{value}->{public} ) )
-            || ( ( $command eq 'makeprivate' ) && $doc->{value}->{public} ) )
-        {
-            print $doc->{key} . " == " . $doc->{id} . " --> $command\n";
-            if ( !$noupdate ) {
-                my $request2 = "/"
-                  . $manifestdb->{database}
-                  . "/_design/metadatabus/_update/basic/"
-                  . uri_escape( $doc->{id} );
-                my $updatedoc = { $command => JSON::true };
-                my $res2 = $manifestdb->post( $request2, $updatedoc,
-                    { deserializer => 'application/json' } );
-
-                if ( $res2->code != 200 && $res2->code != 201 ) {
-                    die "CouchDB: \"$request2\" return code: "
-                      . $res2->code . "\n";
-                }
-            }
-        }
-    }
-    else {
-        print Data::Dumper->Dump( [$doc], ["Collection without ID"] );
-    }
-}
-
-print "\n\nApproved collection slugs not found:\n";
-foreach my $slug ( keys %collections ) {
-    if ( $collections{$slug} eq "makepublic" ) {
+print "\n\nApproved slugs not found:\n";
+foreach my $slug ( keys %accessslugs ) {
+    if ( $accessslugs{$slug} eq "publish" ) {
         print $slug. "\n";
     }
 }
 
-print "\n\nApproved manifest slugs not found:\n";
-foreach my $slug ( keys %manifests ) {
-    if ( $manifests{$slug} eq "makepublic" ) {
+print "\n\nUnapproved slugs not found:\n";
+foreach my $slug ( keys %accessslugs ) {
+    if ( $accessslugs{$slug} eq "unpublish" ) {
         print $slug. "\n";
     }
 }
+
