@@ -594,7 +594,7 @@ sub loadFileMeta {
             \%containeropt );
         if ( $bagdataresp->code != 200 ) {
             die "container_get("
-              . $self->container
+              . $self->preservation_files
               . ") for $prefix returned "
               . $bagdataresp->code . " - "
               . $bagdataresp->message . "\n";
