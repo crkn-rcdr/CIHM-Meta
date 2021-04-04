@@ -5,7 +5,7 @@ use utf8;
 use warnings;
 use Getopt::Long;
 use Config::General;
-use CIHM::Meta::REST::manifest;
+use CIHM::Meta::REST::access;
 use CIHM::Meta::REST::canvas;
 use URI::Escape;
 use Data::Dumper;
@@ -21,19 +21,19 @@ GetOptions(
 
 my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
 
-# Undefined if no <manifest> config block
-my $manifestdb;
-if ( exists $confighash{manifest} ) {
-    $manifestdb = new CIHM::Meta::REST::manifest(
-        server      => $confighash{manifest}{server},
-        database    => $confighash{manifest}{database},
+# Undefined if no <access> config block
+my $accessdb;
+if ( exists $confighash{access} ) {
+    $accessdb = new CIHM::Meta::REST::access(
+        server      => $confighash{access}{server},
+        database    => $confighash{access}{database},
         type        => 'application/json',
         conf        => $conf,
         clientattrs => { timeout => 36000 },
     );
 }
 else {
-    die "Missing <manifest> configuration block in config\n";
+    die "Missing <acccess> configuration block in config\n";
 }
 
 # Undefined if no <canvas> config block
@@ -52,7 +52,7 @@ else {
 }
 
 $canvasdb->type("application/json");
-$manifestdb->type("application/json");
+$accessdb->type("application/json");
 
 my $count = 1;
 my $startkey;
@@ -90,8 +90,8 @@ while ($count) {
             push @canvaskeys, $rows->[$i]->{'id'};
         }
         my $requestman =
-          "/" . $manifestdb->{database} . "/_design/access/_view/canvasnoids";
-        my $resman = $manifestdb->post(
+          "/" . $accessdb->{database} . "/_design/noid/_view/canvasnoids";
+        my $resman = $accessdb->post(
             $requestman,
             {
                 keys => \@canvaskeys

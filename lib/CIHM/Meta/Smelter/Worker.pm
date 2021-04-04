@@ -12,7 +12,7 @@ use CIHM::Swift::Client;
 use CIHM::Meta::REST::cantaloupe;
 use CIHM::Meta::REST::canvas;
 use CIHM::Meta::REST::dipstaging;
-use CIHM::Meta::REST::manifest;
+use CIHM::Meta::REST::access;
 use CIHM::Meta::Smelter::Process;
 
 our $self;
@@ -79,17 +79,17 @@ sub initworker {
         croak "Missing <dipstaging> configuration block in config\n";
     }
 
-    # Undefined if no <manifest> config block
-    if ( exists $confighash{manifest} ) {
-        $self->{manifestdb} = new CIHM::Meta::REST::manifest(
-            server      => $confighash{manifest}{server},
-            database    => $confighash{manifest}{database},
+    # Undefined if no <access> config block
+    if ( exists $confighash{access} ) {
+        $self->{accessdb} = new CIHM::Meta::REST::access(
+            server      => $confighash{access}{server},
+            database    => $confighash{access}{database},
             type        => 'application/json',
             clientattrs => { timeout => 3600 },
         );
     }
     else {
-        croak "Missing <manifest> configuration block in config\n";
+        croak "Missing <access> configuration block in config\n";
     }
 
     # Undefined if no <swift> config block
@@ -137,9 +137,9 @@ sub dipstagingdb {
     return $self->{dipstagingdb};
 }
 
-sub manifestdb {
+sub accessdb {
     my $self = shift;
-    return $self->{manifestdb};
+    return $self->{accessdb};
 }
 
 sub cantaloupe {
@@ -203,7 +203,7 @@ sub smelt {
                 log                => $self->log,
                 canvasdb           => $self->canvasdb,
                 dipstagingdb       => $self->dipstagingdb,
-                manifestdb         => $self->manifestdb,
+                accessdb           => $self->accessdb,
                 cantaloupe         => $self->cantaloupe,
                 swift              => $self->swift,
                 preservation_files => $self->{preservation_files},

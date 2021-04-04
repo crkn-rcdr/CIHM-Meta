@@ -8,7 +8,6 @@ use Try::Tiny;
 use JSON;
 use Switch;
 use URI::Escape;
-use Data::Dumper;
 use CIHM::Meta::dmd::flatten qw(normaliseSpace);
 use List::MoreUtils qw(uniq);
 
@@ -435,17 +434,16 @@ sub findCollections {
     die "Can't getCollections()\n" if ( !$collections );
 
     foreach my $collection ( @{$collections} ) {
+        my $slim = $self->accessdb->getSlim( $collection->{'id'} );
 
-        if (   exists $collection->{value}
-            && exists $collection->{value}->{slug} )
-        {
-            my $slug = $collection->{value}->{slug};
+        if ( exists $slim->{slug} ) {
+            my $slug = $slim->{slug};
             if ( !exists $self->{collections}->{$slug} ) {
                 $self->{collections}->{$slug} = 1;
-
-# TODO: Just for checking match with old                $self->findCollections( $collection->{'id'} );
             }
-            if ( $collection->{value}->{ordered} ) {
+            if ( exists $slim->{behavior}
+                && ( $slim->{behavior} ne "unordered" ) )
+            {
                 $self->{orderedcollections}->{$slug} = 1;
             }
         }

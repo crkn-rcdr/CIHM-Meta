@@ -5,8 +5,7 @@ use Carp;
 use Config::General;
 use Log::Log4perl;
 
-use CIHM::Meta::REST::manifest;
-use CIHM::Meta::REST::collection;
+use CIHM::Meta::REST::access;
 use CIHM::Meta::Hammer2::Worker;
 
 use Coro::Semaphore;
@@ -177,40 +176,6 @@ sub hammer {
     }
 }
 
-sub getNextTestNOID {
-    my ($self) = @_;
-
-    if ( !exists $self->{testnoids} ) {
-
-        $self->accessdb->type("application/json");
-
-        my $url = "/"
-          . $self->accessdb->database
-          . "/_design/metadatabus/_view/updateinternalmetas?reduce=false&startkey=\[1,true\]&endkey=\[1,true,\{\}\]";
-
-        my $res =
-          $self->accessdb->get( $url, {},
-            { deserializer => 'application/json' } );
-        if ( $res->code == 200 ) {
-            if ( exists $res->data->{rows} ) {
-                $self->{testnoids} = [];
-                foreach my $hr ( @{ $res->data->{rows} } ) {
-                    my $noid = $hr->{id};
-                    push @{ $self->{testnoids} }, $noid;
-                }
-            }
-        }
-        else {
-            warn $url . " GET return code: " . $res->code . "\n";
-        }
-    }
-
-    if ( exists $self->{testnoids} ) {
-        return pop @{ $self->{testnoids} };
-    }
-    return;
-}
-
 sub getNextNOID {
     my ($self) = @_;
 
@@ -224,7 +189,7 @@ sub getNextNOID {
     $self->accessdb->type("application/json");
     my $url = "/"
       . $self->accessdb->database
-      . "/_design/metadatabus/_view/updateinternalmetaq?reduce=false&descending=true&limit="
+      . "/_design/metadatabus/_view/hammerQueue?reduce=false&descending=true&limit="
       . $self->limit
       . $skipparam;
     my $res =
@@ -241,7 +206,7 @@ sub getNextNOID {
     }
     else {
         warn "$url on "
-          . $self->accessdb->sever
+          . $self->accessdb->server
           . " GET return code: "
           . $res->code . "\n";
     }

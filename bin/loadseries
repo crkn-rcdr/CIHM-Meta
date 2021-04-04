@@ -6,8 +6,8 @@ use warnings;
 use Getopt::Long;
 use Config::General;
 use CIHM::Meta::REST::internalmeta;
-use CIHM::Meta::REST::collection;
-use CIHM::Meta::REST::manifest;
+use CIHM::Meta::REST::access;
+use CIHM::Meta::Kivik;
 use XML::LibXML;
 use CIHM::Swift::Client;
 use Data::Dumper;
@@ -32,20 +32,20 @@ my $nomanifests;
 my $noupdatedmd;
 my $validate;
 my $checktags;
-my $clearitems;
+my $clearmembers;
 my $debug;
 
 GetOptions(
-    'conf:s'      => \$conf,
-    'nocapcol'    => \$nocapcol,
-    'noseries'    => \$noseries,
-    'nopost'      => \$nopost,
-    'nomanifests' => \$nomanifests,
-    'noupdatedmd' => \$noupdatedmd,
-    'validate'    => \$validate,
-    'checktags'   => \$checktags,
-    'clearitems'  => \$clearitems,
-    'debug'       => \$debug
+    'conf:s'       => \$conf,
+    'nocapcol'     => \$nocapcol,
+    'noseries'     => \$noseries,
+    'nopost'       => \$nopost,
+    'nomanifests'  => \$nomanifests,
+    'noupdatedmd'  => \$noupdatedmd,
+    'validate'     => \$validate,
+    'checktags'    => \$checktags,
+    'clearmembers' => \$clearmembers,
+    'debug'        => \$debug
 );
 
 my %confighash = new Config::General( -ConfigFile => $conf, )->getall;
@@ -122,34 +122,19 @@ if ( !$nocapcol ) {
     }
 }
 
-# Undefined if no <collection> config block
-my $collectiondb;
-if ( exists $confighash{collection} ) {
-    $collectiondb = new CIHM::Meta::REST::collection(
-        server      => $confighash{collection}{server},
-        database    => $confighash{collection}{database},
+# Undefined if no <access> config block
+my $accessdb;
+if ( exists $confighash{access} ) {
+    $accessdb = new CIHM::Meta::REST::access(
+        server      => $confighash{access}{server},
+        database    => $confighash{access}{database},
         type        => 'application/json',
         conf        => $conf,
         clientattrs => { timeout => 36000 },
     );
 }
 else {
-    die "Missing <collection> configuration block in config\n";
-}
-
-# Undefined if no <manifest> config block
-my $manifestdb;
-if ( exists $confighash{manifest} ) {
-    $manifestdb = new CIHM::Meta::REST::manifest(
-        server      => $confighash{manifest}{server},
-        database    => $confighash{manifest}{database},
-        type        => 'application/json',
-        conf        => $conf,
-        clientattrs => { timeout => 36000 },
-    );
-}
-else {
-    die "Missing <manifest> configuration block in config\n";
+    die "Missing <access> configuration block in config\n";
 }
 
 # Undefined if no <internalmeta> config block
@@ -185,8 +170,8 @@ if ( !$noseries ) {
     }
     foreach my $seriesslug ( @{ $res->data->{rows} } ) {
 
-        # Convert string label to IIIF Text Value
-        my %label = ( "none" => [ $seriesslug->{doc}->{label} ] );
+        # Convert string label to Text Value
+        my %label = ( "none" => $seriesslug->{doc}->{label} );
         $seriesslugs{ $seriesslug->{id} } = {
             collections => $seriesslug->{doc}->{collections},
             label       => \%label
@@ -207,7 +192,7 @@ if ( !$noseries ) {
     foreach my $seriesslug ( @{ $res->data->{rows} } ) {
 
         # Convert string label to IIIF Text Value
-        my %label = ( "none" => [ $seriesslug->{doc}->{label} ] );
+        my %label = ( "none" => $seriesslug->{doc}->{label} );
         $seriesslugs{ $seriesslug->{id} } = {
             collections => $seriesslug->{doc}->{collections},
             label       => \%label
@@ -220,22 +205,52 @@ else {
 
 # Building the collections
 
-## Load existing manifest 'slug' entries
-print "Load manifest slugs...\n";
+## Load existing 'slug' entries
+print "Load slugs...\n";
 my %slugfromnoid;
 my %noidfromslug;
-$res =
-  $manifestdb->get( "/" . $manifestdb->database . "/_design/access/_view/slug",
-    {}, { deserializer => 'application/json' } );
-if ( $res->code != 200 ) {
-    if ( defined $res->response->content ) {
-        warn $res->response->content . "\n";
+my $url = "/" . $accessdb->database . "/_find";
+my $donenoid;
+my $bookmarknoid;
+my @collectionlist;
+
+while ( !$donenoid ) {
+    $res = $accessdb->post(
+        $url,
+        {
+            "selector" => {},
+            "limit"    => 100000,
+            "fields"   => [ "_id", "type", "slug" ],
+            "bookmark" => $bookmarknoid
+        },
+        { deserializer => 'application/json' }
+    );
+    if ( $res->code != 200 ) {
+        if ( defined $res->response->content ) {
+            warn $res->response->content . "\n";
+        }
+        die "$url return code: " . $res->code . "\n";
     }
-    die "/_design/access/_view/slug return code: " . $res->code . "\n";
-}
-foreach my $slugentry ( @{ $res->data->{rows} } ) {
-    if ( substr( $slugentry->{key}, 0, 8 ) ne '_design/' ) {
-        $noidfromslug{ $slugentry->{key} } = $slugentry->{id};
+    if ( exists $res->data->{bookmark} ) {
+        $bookmarknoid = $res->data->{bookmark};
+    }
+    if ( exists $res->data->{docs} ) {
+        if ( scalar( @{ $res->data->{docs} } ) ) {
+            foreach my $slugentry ( @{ $res->data->{docs} } ) {
+                if ( defined $slugentry->{'slug'}
+                    && ( substr( $slugentry->{'_id'}, 0, 8 ) ne '_design/' ) )
+                {
+                    $noidfromslug{ $slugentry->{'slug'} } = $slugentry->{'_id'};
+                }
+                if ( $slugentry->{'type'} eq 'collection' ) {
+                    push @collectionlist, $slugentry->{'_id'};
+                }
+            }
+        }
+        else {
+            $donenoid = JSON::true;
+
+        }
     }
 }
 
@@ -243,9 +258,16 @@ foreach my $slugentry ( @{ $res->data->{rows} } ) {
 print "Load existing 'collection' entries...\n";
 my %collectionentries;
 
-$res = $collectiondb->get(
-    "/" . $collectiondb->database . "/_all_docs?include_docs=true",
-    {}, { deserializer => 'application/json' } );
+# Only get collections using ID's from above.
+$url = "/" . $accessdb->database . "/_all_docs?include_docs=true";
+$res = $accessdb->post(
+    $url,
+    {
+        keys => \@collectionlist
+
+    },
+    { deserializer => 'application/json' }
+);
 if ( $res->code != 200 ) {
     if ( defined $res->response->content ) {
         warn $res->response->content . "\n";
@@ -257,16 +279,19 @@ foreach my $collection ( @{ $res->data->{rows} } ) {
         my $noid = $collection->{key};
         my $slug = $collection->{doc}->{slug};
         %{ $collectionentries{$noid} } = %{ $collection->{doc} };
-        $noidfromslug{ $collection->{doc}->{slug} } = $noid
-          if defined $collection->{doc}->{slug};
-        if ( scalar( @{ $collectionentries{$noid}{items} } )
-            && ref @{ $collectionentries{$noid}{items} }[0] ne 'HASH' )
-        {
-            @{ $collectionentries{$noid}{items} } =
-              listToId( @{ $collectionentries{$noid}{items} } );
-            $collectionentries{$noid}{updated} = 1;
 
-            #print "Noid=$noid items updated\n" if ($debug);
+        if ( defined $collection->{doc}->{slug}
+            && ( $noidfromslug{ $collection->{doc}->{slug} } ne $noid ) )
+        {
+            print "NOID mismatch? " . Dumper($collection) . "\n";
+        }
+
+        if ( scalar( @{ $collectionentries{$noid}{members} } )
+            && ref @{ $collectionentries{$noid}{members} }[0] ne 'HASH' )
+        {
+            @{ $collectionentries{$noid}{members} } =
+              listToId( @{ $collectionentries{$noid}{members} } );
+            $collectionentries{$noid}{updated} = 1;
         }
     }
 }
@@ -289,27 +314,27 @@ my %parentcollection;
 foreach my $capcol ( keys %capcols ) {
     if ( defined $capcols{$capcol}{'subcollections'} ) {
         if ( ref( $capcols{$capcol}{'subcollections'} ) eq ref [] ) {
-            my @items;
+            my @members;
 
             foreach my $subcol ( @{ $capcols{$capcol}{'subcollections'} } ) {
-                push @items, $subcol;
+                push @members, $subcol;
                 if ( !exists $parentcollection{$subcol} ) {
                     $parentcollection{$subcol} = [];
                 }
                 push @{ $parentcollection{$subcol} }, $capcol;
             }
 
-            my @itemsnoid;
-            foreach my $item (@items) {
-                push @itemsnoid,
-                  findCreateCollection( { slug => $item, nocreate => 1 } );
+            my @membersnoid;
+            foreach my $member (@members) {
+                push @membersnoid,
+                  findCreateCollection( { slug => $member, nocreate => 1 } );
             }
 
-            # Set the subcollections as items
+            # Set the subcollections as members
             findCreateCollection(
                 {
                     slug     => $capcol,
-                    items    => \@itemsnoid,
+                    members  => \@membersnoid,
                     nocreate => 1
                 }
             );
@@ -343,19 +368,17 @@ until ($changenothing) {
 # Clean up unused hash
 undef %capcols;
 
-# Clear the items field if asked
-if ($clearitems) {
-    print "Clearing items field in series\n";
+# Clear the members field if asked
+if ($clearmembers) {
+    print "Clearing members field in series\n";
     foreach my $noid ( keys %collectionentries ) {
 
-        # Ensure that items is empty, whether it doesn't exist or had entries
-        if ( ( ref $collectionentries{$noid}{items} ne ref [] )
-            || scalar( $collectionentries{$noid}{items} ) )
+        # Ensure that members is empty, whether it doesn't exist or had entries
+        if ( ( ref $collectionentries{$noid}{members} ne ref [] )
+            || scalar( $collectionentries{$noid}{members} ) )
         {
-            $collectionentries{$noid}{items}   = [];
+            $collectionentries{$noid}{members} = [];
             $collectionentries{$noid}{updated} = 1;
-
-            #print "Clearitems $noid\n" if ($debug);
         }
     }
 }
@@ -395,13 +418,15 @@ if ( !$noseries ) {
                 {
                     slug     => $colstring,
                     nocreate => 1,
-                    items    => [$seriesnoid]
+                    members  => [$seriesnoid]
                 }
             );
         }
 
     }
 }
+
+print "initSlugFromNoid()\n" if $debug;
 
 initSlugFromNoid();    # Ensure updated before doing later lookups
 
@@ -415,11 +440,11 @@ if ( !$nomanifests ) {
             print "  $noid has no slug\n";
             next;
         }
-        if ( $entry->{ordered} ) {
-            updateSeriesItems($slug);
+        if ( $entry->{behavior} eq 'multi-part' ) {
+            updateSeriesMembers($slug);
         }
         else {
-            updateCollectionItems($slug);
+            updateCollectionMembers($slug);
         }
     }
 }
@@ -439,7 +464,7 @@ if ( !$noupdatedmd ) {
     foreach my $noid ( keys %collectionentries ) {
 
 # Unordered means it is not a series, and thus we don't have DMD in the repository.
-        if ( $collectionentries{$noid}{ordered} ) {
+        if ( $collectionentries{$noid}{behavior} eq 'multi-part' ) {
             updateDMD($noid);
         }
     }
@@ -448,12 +473,13 @@ if ( !$noupdatedmd ) {
 }
 
 if ($validate) {
+    print "Validating records...\n";
     validateRecords();
 }
 
 ### Helper functions
 
-sub updateSeriesItems {
+sub updateSeriesMembers {
     my ($slug) = @_;
 
     my $noid = getNoidFromSlug($slug);
@@ -469,20 +495,20 @@ sub updateSeriesItems {
             die "issues for startkey=$slug return code: "
               . $colres->code . "\n";
         }
-        my @items;
-        foreach my $item ( @{ $colres->data->{rows} } ) {
-            my $approved = $item->{value}->{approved};
-            my $itemslug = $item->{id};
-            my $itemnoid = getNoidFromSlug($itemslug);
-            if ($itemnoid) {
-                push @items, $itemnoid;
+        my @members;
+        foreach my $member ( @{ $colres->data->{rows} } ) {
+            my $approved   = $member->{value}->{approved};
+            my $memberslug = $member->{id};
+            my $membernoid = getNoidFromSlug($memberslug);
+            if ($membernoid) {
+                push @members, $membernoid;
             }
             else {
                 if ($approved) {
-                    print "  No noid for issue AIPID=$itemslug\n";
+                    print "  No noid for issue AIPID=$memberslug\n";
                 }
                 elsif ($debug) {
-                    print "  No noid for unapproved issue AIPID=$itemslug\n";
+                    print "  No noid for unapproved issue AIPID=$memberslug\n";
                 }
             }
         }
@@ -490,7 +516,7 @@ sub updateSeriesItems {
             {
                 slug     => $slug,
                 nocreate => 1,
-                oitems   => \@items
+                omembers => \@members
             }
         );
     }
@@ -499,7 +525,7 @@ sub updateSeriesItems {
     }
 }
 
-sub updateCollectionItems {
+sub updateCollectionMembers {
     my ($slug) = @_;
 
     my $noid = getNoidFromSlug($slug);
@@ -515,22 +541,22 @@ sub updateCollectionItems {
             die "cotitles for startkey=$slug return code: "
               . $colres->code . "\n";
         }
-        my @items;
-        foreach my $item ( @{ $colres->data->{rows} } ) {
-            my $itemslug = $item->{id};
-            my $itemnoid = getNoidFromSlug($itemslug);
-            if ($itemnoid) {
-                push @items, $itemnoid;
+        my @members;
+        foreach my $member ( @{ $colres->data->{rows} } ) {
+            my $memberslug = $member->{id};
+            my $membernoid = getNoidFromSlug($memberslug);
+            if ($membernoid) {
+                push @members, $membernoid;
             }
             else {
-                print "  No noid for collection member AIPID=$itemslug\n";
+                print "  No noid for collection member AIPID=$memberslug\n";
             }
         }
         findCreateCollection(
             {
                 slug     => $slug,
                 nocreate => 1,
-                items    => \@items
+                members  => \@members
             }
         );
     }
@@ -675,6 +701,8 @@ sub postUpdates {
         if ( $entry->{updated} ) {
             delete $entry->{updated};
             $entry->{'_id'} = $noidkey;
+            validateRecord( 'access', $entry )
+              ;    # Always validate records being added or updated.
             push @{ $dbupdate->{docs} }, $entry;
         }
     }
@@ -690,9 +718,8 @@ sub postUpdates {
       . scalar( @{ $dbupdate->{docs} } )
       . " collection updates.\n";
 
-    $collectiondb->type("application/json");
-    my $res =
-      $collectiondb->post( "/" . $collectiondb->database . "/_bulk_docs",
+    $accessdb->type("application/json");
+    my $res = $accessdb->post( "/" . $accessdb->database . "/_bulk_docs",
         $dbupdate, { deserializer => 'application/json' } );
     if ( $res->code != 201 ) {
         if ( defined $res->response->content ) {
@@ -734,14 +761,19 @@ sub findCreateCollection {
         $noid = getCollectionNoid();
     }
 
+    if (  !( defined $collectionentries{$noid}{type} )
+        || ( $collectionentries{$noid}{type} ne 'collection' ) )
+    {
+        $collectionentries{$noid}{type}    = 'collection';
+        $collectionentries{$noid}{updated} = 1;
+    }
+
     if (  !( defined $collectionentries{$noid}{slug} )
         || ( $collectionentries{$noid}{slug} ne $slug ) )
     {
         $collectionentries{$noid}{slug}    = $slug;
         $collectionentries{$noid}{updated} = 1;
         $noidfromslug{$slug}               = $noid;
-
-        #print " $collectionentries{$noid}{slug} ne $slug \n" if ($debug);
     }
 
     # Clear old entry if exists
@@ -752,45 +784,39 @@ sub findCreateCollection {
         #print " delete $noid {collections} \n" if ($debug);
     }
 
-    # Ensure that items is at least empty
-    if ( ref $collectionentries{$noid}{items} ne ref [] ) {
-        $collectionentries{$noid}{items}   = [];
+    # Ensure that members is at least empty
+    if ( ref $collectionentries{$noid}{members} ne ref [] ) {
+        $collectionentries{$noid}{members} = [];
         $collectionentries{$noid}{updated} = 1;
-
-        #print "empty {items} $noid\n" if ($debug);
     }
 
     # Appending primarily used for unordered collections
-    if ( exists $args->{items} ) {
+    if ( exists $args->{members} ) {
 
-        # Append any missing items
-        my @items = idToList( @{ $collectionentries{$noid}{items} } );
-        my $lc    = List::Compare->new( $args->{items}, \@items );
-        my @toadd = $lc->get_Lonly;
+        # Append any missing members
+        my @members = idToList( @{ $collectionentries{$noid}{members} } );
+        my $lc      = List::Compare->new( $args->{members}, \@members );
+        my @toadd   = $lc->get_Lonly;
         if (@toadd) {
-            push @{ $collectionentries{$noid}{items} }, listToId(@toadd);
+            push @{ $collectionentries{$noid}{members} }, listToId(@toadd);
             $collectionentries{$noid}{updated} = 1;
-
-            # print "Some items to add:  @toadd   $noid\n" if ($debug);
         }
     }
 
-    # Replacing used for ordered collections.
-    if ( exists $args->{oitems} ) {
+    # Replacing used for multi-part collections.
+    if ( exists $args->{omembers} ) {
 
-        my @items = idToList( @{ $collectionentries{$noid}{items} } );
-        my $lc = List::Compare->new( $args->{oitems}, \@items );
+        my @members = idToList( @{ $collectionentries{$noid}{members} } );
+        my $lc = List::Compare->new( $args->{omembers}, \@members );
 
         # This is equivalent, not equal
         if ( !( $lc->is_LequivalentR() ) ) {
 
-            # oitems replaces items (as they are assumed ordered and complete)
-            @{ $collectionentries{$noid}{items} } =
-              listToId( @{ $args->{oitems} } );
+          # omembers replaces members (as they are assumed ordered and complete)
+            @{ $collectionentries{$noid}{members} } =
+              listToId( @{ $args->{omembers} } );
 
             $collectionentries{$noid}{updated} = 1;
-
-            #print "Set oitems $noid\n" if ($debug);
         }
     }
 
@@ -811,26 +837,25 @@ sub findCreateCollection {
     }
 
     if ( exists $args->{ordered} ) {
-        if ( ( $args->{ordered} )
-            && !$collectionentries{$noid}{ordered} )
+        if (
+            ( $args->{ordered} )
+            && (  !( defined $collectionentries{$noid}{behavior} )
+                || ( $collectionentries{$noid}{behavior} ne 'multi-part' ) )
+          )
         {
-            $collectionentries{$noid}{ordered} = JSON::true;
-            $collectionentries{$noid}{updated} = 1;
+            $collectionentries{$noid}{behavior} = 'multi-part';
+            $collectionentries{$noid}{updated}  = 1;
 
             #print "Set ordered for $noid\n" if ($debug);
         }
         if (
             !( $args->{ordered} )
-            && (
-                (
-                    !( defined $collectionentries{$noid}{ordered} )
-                    || $collectionentries{$noid}{ordered}
-                )
-            )
+            && (  !( defined $collectionentries{$noid}{behavior} )
+                || ( $collectionentries{$noid}{behavior} ne 'unordered' ) )
           )
         {
-            $collectionentries{$noid}{ordered} = JSON::false;
-            $collectionentries{$noid}{updated} = 1;
+            $collectionentries{$noid}{behavior} = 'unordered';
+            $collectionentries{$noid}{updated}  = 1;
 
             #print "Set unordered for $noid\n" if ($debug);
         }
@@ -870,35 +895,20 @@ sub getSlugFromNoid {
 }
 
 sub validateRecords {
-    print "Validating records...\n";
     foreach my $noidkey ( keys %collectionentries ) {
-        validateRecord( 'collection', $collectionentries{$noidkey} );
+        validateRecord( 'access', $collectionentries{$noidkey} );
     }
 }
 
 sub validateRecord {
     my ( $database, $record ) = @_;
 
-    my $tempname = "/tmp/loadseriesvalidate.json";
+    my $error = CIHM::Meta::Kivik::validateRecord( $database, $record );
 
-    open( FH, '>', $tempname ) or die $!;
-    print FH encode_json($record);
-    close(FH);
-
-    my $results;
-    open( FH,
-        "kivik validate $tempname /home/tdr/Databases/$database/schema.json |" )
-      or die $!;
-    {
-        local $/;
-        $results = <FH>;
-    }
-    close(FH);
-    chomp($results);
-    if ( $results ne "Document is valid!" ) {
+    if ($error) {
         my $slug = getSlugFromNoid( $record->{'_id'} );
         print "Validation failure for database=$database slug=$slug :\n"
-          . Data::Dumper->Dump( [ $record, $results ], [qw(Record Result)] )
+          . Data::Dumper->Dump( [ $record, $error ], [qw(Record Error)] )
           . "\n";
     }
 }
