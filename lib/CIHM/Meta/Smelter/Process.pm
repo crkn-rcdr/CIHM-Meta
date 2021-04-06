@@ -659,7 +659,7 @@ sub validateRecord {
     my $error = CIHM::Meta::Kivik::validateRecord( $database, $record );
 
     if ($error) {
-        warn "Validation failure for database=$database :\n"
+        die "Validation failure for database=$database :\n"
           . Data::Dumper->Dump( [ $record, $error ], [qw(Record Error)] )
           . "\n";
     }
