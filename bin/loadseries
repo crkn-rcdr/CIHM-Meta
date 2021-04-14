@@ -102,6 +102,48 @@ else {
     die "Missing <cap_collections> configuration block in config\n";
 }
 
+# Undefined if no <internalmeta> config block
+my $internalmeta;
+if ( exists $confighash{internalmeta} ) {
+    $internalmeta = new CIHM::Meta::REST::internalmeta(
+        server      => $confighash{internalmeta}{server},
+        database    => $confighash{internalmeta}{database},
+        type        => 'application/json',
+        conf        => $conf,
+        clientattrs => { timeout => 3600 },
+    );
+}
+else {
+    die "Missing <internalmeta> configuration block in config\n";
+}
+
+=pod
+
+my @online = getMemberSlugs("online");
+
+my @monog   = getMemberSlugs("monog");
+my @serials = getMemberSlugs("serials");
+my @govpubs = getMemberSlugs("govpubs");
+
+my @per    = getMemberSlugs("per");
+my @annual = getMemberSlugs("annual");
+my @news   = getMemberSlugs("news");
+
+my $lc =
+  List::Compare->new( \@online, \@monog, \@serials, \@govpubs, \@per, \@annual,
+    \@news );
+
+my @uonline = $lc->get_unique(0);
+
+$lc = List::Compare->new( \@serials, \@per, \@annual, \@news );
+
+my @userials = $lc->get_unique(0);
+
+print Data::Dumper->Dump( [ \@uonline, \@userials ], [qw(online serials)] );
+
+exit 0;
+=cut
+
 # cap_collections sourced collections
 print "Load cap_collections...\n";
 my %capcols;
@@ -135,21 +177,6 @@ if ( exists $confighash{access} ) {
 }
 else {
     die "Missing <access> configuration block in config\n";
-}
-
-# Undefined if no <internalmeta> config block
-my $internalmeta;
-if ( exists $confighash{internalmeta} ) {
-    $internalmeta = new CIHM::Meta::REST::internalmeta(
-        server      => $confighash{internalmeta}{server},
-        database    => $confighash{internalmeta}{database},
-        type        => 'application/json',
-        conf        => $conf,
-        clientattrs => { timeout => 3600 },
-    );
-}
-else {
-    die "Missing <internalmeta> configuration block in config\n";
 }
 
 # Hash by slug id from 'internalmeta' series records
@@ -525,11 +552,33 @@ sub updateSeriesMembers {
     }
 }
 
+sub getMemberSlugs {
+    my ($slug) = @_;
+    my @members;
+
+    my $colres = $internalmeta->get(
+        "/"
+          . $internalmeta->{database}
+          . "/_design/tdr/_view/collections?reduce=false&include_docs=false&key=\"$slug\"",
+        {},
+        { deserializer => 'application/json' }
+    );
+    if ( $colres->code != 200 ) {
+        die "collections for key=$slug return code: " . $colres->code . "\n";
+    }
+    foreach my $member ( @{ $colres->data->{rows} } ) {
+        push @members, $member->{id};
+    }
+    return @members;
+
+}
+
 sub updateCollectionMembers {
     my ($slug) = @_;
 
     my $noid = getNoidFromSlug($slug);
     if ($noid) {
+        print "updateCollectionMembers slug=$slug noid=$noid\n";
         my $colres = $internalmeta->get(
             "/"
               . $internalmeta->{database}
