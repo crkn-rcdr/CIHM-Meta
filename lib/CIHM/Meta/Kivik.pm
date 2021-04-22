@@ -51,7 +51,7 @@ sub validateRecord {
 
     # Currently looks for specific string rather than return code.
     # There will eventually be a REST call, so this is all temporary.
-    if ( !( $results =~ /validates against database/ ) ) {
+    if ( !( $results =~ / is valid./ ) ) {
         return $results;
     }
 }
