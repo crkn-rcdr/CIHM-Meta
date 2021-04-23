@@ -117,32 +117,9 @@ else {
     die "Missing <internalmeta> configuration block in config\n";
 }
 
-=pod
-
-my @online = getMemberSlugs("online");
-
-my @monog   = getMemberSlugs("monog");
-my @serials = getMemberSlugs("serials");
-my @govpubs = getMemberSlugs("govpubs");
-
-my @per    = getMemberSlugs("per");
-my @annual = getMemberSlugs("annual");
-my @news   = getMemberSlugs("news");
-
-my $lc =
-  List::Compare->new( \@online, \@monog, \@serials, \@govpubs, \@per, \@annual,
-    \@news );
-
-my @uonline = $lc->get_unique(0);
-
-$lc = List::Compare->new( \@serials, \@per, \@annual, \@news );
-
-my @userials = $lc->get_unique(0);
-
-print Data::Dumper->Dump( [ \@uonline, \@userials ], [qw(online serials)] );
-
-exit 0;
-=cut
+print "Building collection tree...\n";
+my %collectiontree;
+initCollectionTree();    # Create collection tree to be used later.
 
 # cap_collections sourced collections
 print "Load cap_collections...\n";
@@ -552,6 +529,43 @@ sub updateSeriesMembers {
     }
 }
 
+sub initCollectionTree {
+
+    my @online = getMemberSlugs("online");
+
+    my @monog   = getMemberSlugs("monog");
+    my @serials = getMemberSlugs("serials");
+    my @govpubs = getMemberSlugs("govpubs");
+
+    my @per    = getMemberSlugs("per");
+    my @annual = getMemberSlugs("annual");
+    my @news   = getMemberSlugs("news");
+
+    my $lc =
+      List::Compare->new( \@online, \@monog, \@serials, \@govpubs, \@per,
+        \@annual, \@news );
+
+    my @uonline = $lc->get_unique(0);
+    push @uonline, 'monog', 'serials', 'govpubs';
+
+    $lc = List::Compare->new( \@serials, \@per, \@annual, \@news );
+
+    my @userials = $lc->get_unique(0);
+    push @userials, 'per', 'annual', 'news';
+
+    $collectiontree{'online'}  = \@uonline;
+    $collectiontree{'serials'} = \@userials;
+
+    $collectiontree{'monog'}   = \@monog;
+    $collectiontree{'govpubs'} = \@govpubs;
+    $collectiontree{'per'}     = \@per;
+    $collectiontree{'annual'}  = \@annual;
+    $collectiontree{'news'}    = \@news;
+
+    #    print Data::Dumper->Dump( [ \%collectiontree], [qw(CollectionTree)] );
+
+}
+
 sub getMemberSlugs {
     my ($slug) = @_;
     my @members;
@@ -590,9 +604,13 @@ sub updateCollectionMembers {
             die "cotitles for startkey=$slug return code: "
               . $colres->code . "\n";
         }
+        my @memberslugs =
+          exists $collectiontree{$slug}
+          ? @{ $collectiontree{$slug} }
+          : getMemberSlugs($slug);
+
         my @members;
-        foreach my $member ( @{ $colres->data->{rows} } ) {
-            my $memberslug = $member->{id};
+        foreach my $memberslug (@memberslugs) {
             my $membernoid = getNoidFromSlug($memberslug);
             if ($membernoid) {
                 push @members, $membernoid;
